@@ -28,6 +28,9 @@ app.add_typer(session_app, name="sessions", help="View Claude Code session infor
 app.add_typer(config_app, name="config", help="Manage configuration and projects.")
 
 
+from do_my_tasks.cli.output import set_json_mode
+
+
 def version_callback(value: bool):
     if value:
         typer.echo(f"dmt version {__version__}")
@@ -36,11 +39,14 @@ def version_callback(value: bool):
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: bool | None = typer.Option(
         None, "--version", "-V", callback=version_callback, is_eager=True,
         help="Show version and exit.",
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
+    json_output: bool = typer.Option(False, "--json", help="Output in JSON format."),
 ):
     """DMT - Intelligent daily activity tracker & task manager for Claude Code."""
+    set_json_mode(json_output)
     setup_logger(verbose=verbose)

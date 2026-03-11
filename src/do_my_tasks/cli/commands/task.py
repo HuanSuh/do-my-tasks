@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from do_my_tasks.cli.output import is_json_mode
 from do_my_tasks.core.task_manager import TaskManager
 from do_my_tasks.models.task import TaskPriority, TaskStatus
 from do_my_tasks.storage.database import get_session_factory
@@ -24,6 +26,20 @@ STATUS_ICONS = {
 }
 
 
+def _task_to_dict(t) -> dict:
+    """Convert a task row to a JSON-serializable dict."""
+    return {
+        "id": f"T-{t.id:04d}",
+        "status": t.status,
+        "priority": t.priority,
+        "title": t.title,
+        "project": t.project_name,
+        "date": t.date,
+        "rollover_count": t.rollover_count,
+        "requires_review": t.requires_review,
+    }
+
+
 @app.command("add")
 def add_task(
     title: str = typer.Argument(..., help="Task title."),
@@ -35,7 +51,10 @@ def add_task(
     try:
         pri = TaskPriority(priority.lower())
     except ValueError:
-        console.print(f"[red]Invalid priority: {priority}. Use high/medium/low.[/red]")
+        if is_json_mode():
+            print(json.dumps({"error": f"Invalid priority: {priority}"}))
+        else:
+            console.print(f"[red]Invalid priority: {priority}. Use high/medium/low.[/red]")
         raise typer.Exit(1)
 
     session_factory = get_session_factory()
@@ -47,7 +66,17 @@ def add_task(
         description=description,
         date=date.today().isoformat(),
     )
-    console.print(f"[green]Created task T-{task_row.id:04d}: {title}[/green]")
+
+    if is_json_mode():
+        print(json.dumps({
+            "id": f"T-{task_row.id:04d}",
+            "title": title,
+            "project": project,
+            "priority": priority.lower(),
+            "status": "pending",
+        }))
+    else:
+        console.print(f"[green]Created task T-{task_row.id:04d}: {title}[/green]")
 
 
 @app.command("list")
@@ -65,6 +94,13 @@ def list_tasks(
         tasks = manager.get_stale()
     else:
         tasks = manager.list(project_name=project, status=status, date=target_date)
+
+    if is_json_mode():
+        print(json.dumps({
+            "tasks": [_task_to_dict(t) for t in tasks],
+            "count": len(tasks),
+        }, ensure_ascii=False))
+        return
 
     if not tasks:
         console.print("[dim]No tasks found.[/dim]")
@@ -105,9 +141,15 @@ def complete_task(
     manager = TaskManager(session_factory)
     result = manager.update_status(tid, TaskStatus.COMPLETED)
     if result:
-        console.print(f"[green]Completed T-{tid:04d}: {result.title}[/green]")
+        if is_json_mode():
+            print(json.dumps({"id": f"T-{tid:04d}", "title": result.title, "status": "completed"}))
+        else:
+            console.print(f"[green]Completed T-{tid:04d}: {result.title}[/green]")
     else:
-        console.print(f"[red]Task T-{tid:04d} not found.[/red]")
+        if is_json_mode():
+            print(json.dumps({"error": f"Task T-{tid:04d} not found"}))
+        else:
+            console.print(f"[red]Task T-{tid:04d} not found.[/red]")
         raise typer.Exit(1)
 
 
@@ -121,32 +163,52 @@ def update_task(
     tid = _parse_task_id(task_id)
     session_factory = get_session_factory()
     manager = TaskManager(session_factory)
+    updates: dict = {"id": f"T-{tid:04d}"}
 
     if status:
         try:
             new_status = TaskStatus(status.lower())
         except ValueError:
-            console.print(f"[red]Invalid status: {status}[/red]")
+            if is_json_mode():
+                print(json.dumps({"error": f"Invalid status: {status}"}))
+            else:
+                console.print(f"[red]Invalid status: {status}[/red]")
             raise typer.Exit(1)
         result = manager.update_status(tid, new_status)
         if result:
-            console.print(f"[green]Updated T-{tid:04d} status → {new_status.value}[/green]")
+            updates["status"] = new_status.value
+            if not is_json_mode():
+                console.print(f"[green]Updated T-{tid:04d} status → {new_status.value}[/green]")
         else:
-            console.print(f"[red]Task T-{tid:04d} not found.[/red]")
+            if is_json_mode():
+                print(json.dumps({"error": f"Task T-{tid:04d} not found"}))
+            else:
+                console.print(f"[red]Task T-{tid:04d} not found.[/red]")
             raise typer.Exit(1)
 
     if priority:
         try:
             new_priority = TaskPriority(priority.lower())
         except ValueError:
-            console.print(f"[red]Invalid priority: {priority}[/red]")
+            if is_json_mode():
+                print(json.dumps({"error": f"Invalid priority: {priority}"}))
+            else:
+                console.print(f"[red]Invalid priority: {priority}[/red]")
             raise typer.Exit(1)
         result = manager.update_priority(tid, new_priority)
         if result:
-            console.print(f"[green]Updated T-{tid:04d} priority → {new_priority.value}[/green]")
+            updates["priority"] = new_priority.value
+            if not is_json_mode():
+                console.print(f"[green]Updated T-{tid:04d} priority → {new_priority.value}[/green]")
         else:
-            console.print(f"[red]Task T-{tid:04d} not found.[/red]")
+            if is_json_mode():
+                print(json.dumps({"error": f"Task T-{tid:04d} not found"}))
+            else:
+                console.print(f"[red]Task T-{tid:04d} not found.[/red]")
             raise typer.Exit(1)
+
+    if is_json_mode():
+        print(json.dumps(updates))
 
 
 @app.command("delete")
@@ -159,15 +221,21 @@ def delete_task(
     session_factory = get_session_factory()
     manager = TaskManager(session_factory)
 
-    if not force:
+    if not force and not is_json_mode():
         confirm = typer.confirm(f"Delete task T-{tid:04d}?")
         if not confirm:
             raise typer.Abort()
 
     if manager.delete(tid):
-        console.print(f"[green]Deleted T-{tid:04d}.[/green]")
+        if is_json_mode():
+            print(json.dumps({"id": f"T-{tid:04d}", "deleted": True}))
+        else:
+            console.print(f"[green]Deleted T-{tid:04d}.[/green]")
     else:
-        console.print(f"[red]Task T-{tid:04d} not found.[/red]")
+        if is_json_mode():
+            print(json.dumps({"error": f"Task T-{tid:04d} not found"}))
+        else:
+            console.print(f"[red]Task T-{tid:04d} not found.[/red]")
         raise typer.Exit(1)
 
 
@@ -190,7 +258,15 @@ def rollover_tasks(
     session_factory = get_session_factory()
     manager = TaskManager(session_factory)
     rolled = manager.rollover(source, target)
-    console.print(f"[green]Rolled over {rolled} tasks from {source} to {target}.[/green]")
+
+    if is_json_mode():
+        print(json.dumps({
+            "from_date": source,
+            "to_date": target,
+            "rolled_over": rolled,
+        }))
+    else:
+        console.print(f"[green]Rolled over {rolled} tasks from {source} to {target}.[/green]")
 
 
 def _parse_task_id(task_id: str) -> int:
@@ -201,5 +277,8 @@ def _parse_task_id(task_id: str) -> int:
     try:
         return int(cleaned)
     except ValueError:
-        console.print(f"[red]Invalid task ID: {task_id}[/red]")
+        if is_json_mode():
+            print(json.dumps({"error": f"Invalid task ID: {task_id}"}))
+        else:
+            console.print(f"[red]Invalid task ID: {task_id}[/red]")
         raise typer.Exit(1)

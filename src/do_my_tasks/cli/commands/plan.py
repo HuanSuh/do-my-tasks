@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from do_my_tasks.cli.output import is_json_mode
 from do_my_tasks.intelligence.todo_generator import TodoGenerator
 from do_my_tasks.storage.database import get_session_factory
 from do_my_tasks.utils.config import load_config
@@ -30,6 +32,29 @@ def plan(
 
     generator = TodoGenerator(session_factory, config)
     plan_items = generator.generate(date_str)
+
+    if is_json_mode():
+        output: dict = {
+            "date": date_str,
+            "rolled_over": [
+                {
+                    "id": task.task_id or (f"T-{task.id:04d}" if task.id else None),
+                    "priority": task.priority.value,
+                    "title": task.title,
+                    "project": task.project_name,
+                    "rollover_count": task.rollover_count,
+                    "requires_review": task.requires_review,
+                }
+                for task in plan_items.rolled_over
+            ],
+            "high_priority": plan_items.high_priority,
+            "follow_ups": plan_items.follow_ups,
+        }
+        if save:
+            saved = generator.save_as_tasks(plan_items, date_str)
+            output["saved"] = saved
+        print(json.dumps(output, ensure_ascii=False))
+        return
 
     if not plan_items.has_items():
         console.print("[bold green]All clear! No pending items.[/bold green]")

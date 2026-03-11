@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from do_my_tasks.cli.output import is_json_mode
 from do_my_tasks.storage.database import get_session_factory
 from do_my_tasks.storage.repository import ProjectRepository, UnitOfWork
 from do_my_tasks.utils.config import (
@@ -25,6 +27,24 @@ console = Console()
 def show_config():
     """Show current configuration."""
     config = load_config()
+
+    if is_json_mode():
+        print(json.dumps({
+            "config_path": str(get_config_path()),
+            "claude_projects_dir": str(config.claude_projects_dir),
+            "reports_dir": str(config.reports_dir),
+            "projects": [
+                {
+                    "name": p.name,
+                    "path": p.path,
+                    "main_branch": p.main_branch,
+                    "exists": Path(p.path).exists(),
+                }
+                for p in config.projects
+            ],
+        }, ensure_ascii=False))
+        return
+
     console.print(f"[bold]Config file:[/bold] {get_config_path()}")
     console.print(f"[bold]Claude projects dir:[/bold] {config.claude_projects_dir}")
     console.print(f"[bold]Reports dir:[/bold] {config.reports_dir}")
@@ -44,7 +64,10 @@ def add_project(
     """Register a project for tracking."""
     project_path = Path(path).resolve()
     if not project_path.exists():
-        console.print(f"[red]Path does not exist: {project_path}[/red]")
+        if is_json_mode():
+            print(json.dumps({"error": f"Path does not exist: {project_path}"}))
+        else:
+            console.print(f"[red]Path does not exist: {project_path}[/red]")
         raise typer.Exit(1)
 
     project_name = name or project_path.name
@@ -52,7 +75,10 @@ def add_project(
 
     # Check if already registered
     if any(p.name == project_name for p in config.projects):
-        console.print(f"[yellow]Project '{project_name}' already registered.[/yellow]")
+        if is_json_mode():
+            print(json.dumps({"error": f"Project '{project_name}' already registered"}))
+        else:
+            console.print(f"[yellow]Project '{project_name}' already registered.[/yellow]")
         raise typer.Exit()
 
     from do_my_tasks.utils.config import ProjectConfig
@@ -69,7 +95,15 @@ def add_project(
         repo.upsert(project_name, str(project_path), main_branch)
         uow.commit()
 
-    console.print(f"[green]Added project '{project_name}' ({project_path})[/green]")
+    if is_json_mode():
+        print(json.dumps({
+            "name": project_name,
+            "path": str(project_path),
+            "main_branch": main_branch,
+            "added": True,
+        }))
+    else:
+        console.print(f"[green]Added project '{project_name}' ({project_path})[/green]")
 
 
 @app.command("remove")
@@ -87,13 +121,32 @@ def remove_project(
         repo.remove(name)
         uow.commit()
 
-    console.print(f"[green]Removed project '{name}'[/green]")
+    if is_json_mode():
+        print(json.dumps({"name": name, "removed": True}))
+    else:
+        console.print(f"[green]Removed project '{name}'[/green]")
 
 
 @app.command("list")
 def list_projects():
     """List all registered projects."""
     config = load_config()
+
+    if is_json_mode():
+        print(json.dumps({
+            "projects": [
+                {
+                    "name": p.name,
+                    "path": p.path,
+                    "main_branch": p.main_branch,
+                    "exists": Path(p.path).exists(),
+                }
+                for p in config.projects
+            ],
+            "count": len(config.projects),
+        }, ensure_ascii=False))
+        return
+
     if not config.projects:
         console.print(
             "[dim]No projects registered. Run 'dmt config discover' to find projects.[/dim]"
