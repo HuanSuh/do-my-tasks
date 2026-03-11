@@ -582,7 +582,7 @@ def _get_session_state(log_path: Path) -> dict:
         files_modified: list[str]  - files written/edited
         commands_run: list[str]    - bash commands executed
         stop_reason: str | None    - "end_turn" | "tool_use"
-        status: str  - "done" | "permission" | "working" | "waiting"
+        status: str  - "idle" | "permission" | "working" | "waiting"
         file_size: int
     """
     state: dict = {
@@ -691,7 +691,7 @@ def _get_session_state(log_path: Path) -> dict:
         if last_stop_reason == "tool_use":
             state["status"] = "permission"
         else:
-            state["status"] = "done"
+            state["status"] = "idle"
     elif state["last_type"] == "user":
         state["status"] = "working"
     else:
@@ -1008,10 +1008,11 @@ def watch(
                         prev["commands_run"] = state[
                             "commands_run"
                         ]
+                        active_msg = (state.get('last_user_msg') or '')[:50]
                         _watch_log(
                             f"Active: {proj_name} (PID {pid}) "
-                            f"status={state.get('status', '?')} "
-                            f"msg=\"{(state.get('last_user_msg') or '')[:50]}\""
+                            f"status={state.get('status', '?')}"
+                            + (f" msg=\"{active_msg}\"" if active_msg else "")
                         )
                         continue
 
@@ -1019,16 +1020,17 @@ def watch(
                     idle_secs = now - prev["last_change"]
                     is_idle = (
                         idle_secs >= idle_threshold
-                        and state["last_type"] == "assistant"
+                        and state["status"] == "idle"
                     )
 
                     if is_idle and not prev["notified"]:
                         prev["notified"] = True
                         idle_dur = _format_idle_duration(idle_secs)
+                        idle_msg = (prev.get('last_user_msg') or '')[:50]
                         _watch_log(
                             f"Idle: {proj_name} (PID {pid}) "
-                            f"idle={idle_dur} "
-                            f"msg=\"{(prev.get('last_user_msg') or '')[:50]}\""
+                            f"idle={idle_dur}"
+                            + (f" msg=\"{idle_msg}\"" if idle_msg else "")
                         )
                         _handle_idle_session(
                             proj_name, pid, prev, state,
@@ -1071,20 +1073,19 @@ def watch(
                 last_heartbeat = time.time()
                 counts: dict[str, int] = {}
                 for t in tracked.values():
-                    # Determine status from tracked state
                     idle = time.time() - t["last_change"]
                     if idle < idle_threshold:
-                        s = "working"
-                    elif t.get("notified"):
-                        s = "idle"
+                        s = "active"
                     elif t.get("perm_notified"):
                         s = "permission"
-                    else:
+                    elif t.get("notified"):
                         s = "idle"
+                    else:
+                        s = "waiting"
                     counts[s] = counts.get(s, 0) + 1
                 parts = [
                     f"{counts.get(s, 0)} {s}"
-                    for s in ("working", "permission", "idle")
+                    for s in ("active", "permission", "idle", "waiting")
                     if counts.get(s, 0) > 0
                 ]
                 _watch_log(
@@ -1107,7 +1108,7 @@ def watch(
 
 
 STATUS_EMOJI = {
-    "done": "✅",
+    "idle": "✅",
     "permission": "⏸️",
     "working": "🔄",
     "waiting": "💤",
@@ -1142,7 +1143,7 @@ def _handle_idle_session(
 ) -> None:
     """Handle a session that has become idle."""
     now_str = datetime.now().strftime("%H:%M:%S")
-    emoji = STATUS_EMOJI.get(state.get("status", "done"), "✅")
+    emoji = STATUS_EMOJI.get(state.get("status", "idle"), "✅")
 
     # What did it just finish?
     user_msg = prev.get("last_user_msg") or ""
@@ -1338,7 +1339,7 @@ def clean(
             info = _build_session_info(proc["pid"], proc)
             if (
                 info["idle_secs"] >= threshold
-                and info["status"] in ("done", "permission")
+                and info["status"] in ("idle", "permission")
             ):
                 idle_sessions.append(info)
 
