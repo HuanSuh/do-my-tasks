@@ -660,112 +660,123 @@ def watch(
 
     try:
         while True:
-            processes = _find_claude_processes()
+            try:
+                processes = _find_claude_processes()
+            except Exception as e:
+                _watch_log(f"ERROR: Failed to find processes: {e}")
+                time.sleep(interval)
+                continue
 
             for proc in processes:
                 pid = proc["pid"]
 
-                # Cache cwd lookups (expensive lsof call)
-                if pid not in pid_cwd_cache:
-                    cwd = _get_cwd(pid)
-                    if cwd:
-                        pid_cwd_cache[pid] = cwd
+                try:
+                    # Cache cwd lookups (expensive lsof call)
+                    if pid not in pid_cwd_cache:
+                        cwd = _get_cwd(pid)
+                        if cwd:
+                            pid_cwd_cache[pid] = cwd
 
-                cwd = pid_cwd_cache.get(pid)
-                if not cwd:
-                    continue
+                    cwd = pid_cwd_cache.get(pid)
+                    if not cwd:
+                        continue
 
-                proj_name = Path(cwd).name
-                if project and proj_name != project:
-                    continue
+                    proj_name = Path(cwd).name
+                    if project and proj_name != project:
+                        continue
 
-                log_path, _ = _find_log_file(cwd)
-                if not log_path:
-                    continue
+                    log_path, _ = _find_log_file(cwd)
+                    if not log_path:
+                        continue
 
-                log_key = str(log_path)
-                state = _get_session_state(log_path)
-                prev = tracked.get(log_key)
+                    log_key = str(log_path)
+                    state = _get_session_state(log_path)
+                    prev = tracked.get(log_key)
 
-                now = time.time()
+                    now = time.time()
 
-                if prev is None:
-                    # First observation
-                    tracked[log_key] = {
-                        "size": state["file_size"],
-                        "last_change": now,
-                        "notified": False,
-                        "project": proj_name,
-                        "pid": pid,
-                        "last_user_msg": state[
+                    if prev is None:
+                        # First observation
+                        tracked[log_key] = {
+                            "size": state["file_size"],
+                            "last_change": now,
+                            "notified": False,
+                            "project": proj_name,
+                            "pid": pid,
+                            "last_user_msg": state[
+                                "last_user_msg"
+                            ],
+                            "tools": state["tools"],
+                        }
+                        _watch_log(
+                            f"Tracking: {proj_name} (PID {pid}) "
+                            f"status={state.get('status', '?')}"
+                        )
+                        continue
+
+                    # Check if file changed
+                    if state["file_size"] != prev["size"]:
+                        prev["size"] = state["file_size"]
+                        prev["last_change"] = now
+                        prev["notified"] = False
+                        prev["perm_notified"] = False
+                        prev["last_user_msg"] = state[
                             "last_user_msg"
-                        ],
-                        "tools": state["tools"],
-                    }
-                    _watch_log(
-                        f"Tracking: {proj_name} (PID {pid}) "
-                        f"status={state.get('status', '?')}"
-                    )
-                    continue
+                        ]
+                        prev["tools"] = state["tools"]
+                        prev["files_modified"] = state[
+                            "files_modified"
+                        ]
+                        prev["commands_run"] = state[
+                            "commands_run"
+                        ]
+                        _watch_log(
+                            f"Active: {proj_name} (PID {pid}) "
+                            f"status={state.get('status', '?')} "
+                            f"msg=\"{state.get('last_user_msg', '')[:50]}\""
+                        )
+                        continue
 
-                # Check if file changed
-                if state["file_size"] != prev["size"]:
-                    prev["size"] = state["file_size"]
-                    prev["last_change"] = now
-                    prev["notified"] = False
-                    prev["perm_notified"] = False
-                    prev["last_user_msg"] = state[
-                        "last_user_msg"
-                    ]
-                    prev["tools"] = state["tools"]
-                    prev["files_modified"] = state[
-                        "files_modified"
-                    ]
-                    prev["commands_run"] = state[
-                        "commands_run"
-                    ]
-                    _watch_log(
-                        f"Active: {proj_name} (PID {pid}) "
-                        f"status={state.get('status', '?')} "
-                        f"msg=\"{state.get('last_user_msg', '')[:50]}\""
-                    )
-                    continue
-
-                # File unchanged - check if idle long enough
-                idle_secs = now - prev["last_change"]
-                is_idle = (
-                    idle_secs >= idle_threshold
-                    and state["last_type"] == "assistant"
-                )
-
-                if is_idle and not prev["notified"]:
-                    prev["notified"] = True
-                    idle_dur = _format_idle_duration(idle_secs)
-                    _watch_log(
-                        f"Idle: {proj_name} (PID {pid}) "
-                        f"idle={idle_dur} "
-                        f"msg=\"{prev.get('last_user_msg', '')[:50]}\""
-                    )
-                    _handle_idle_session(
-                        proj_name, pid, prev, state,
-                        notify,
+                    # File unchanged - check if idle long enough
+                    idle_secs = now - prev["last_change"]
+                    is_idle = (
+                        idle_secs >= idle_threshold
+                        and state["last_type"] == "assistant"
                     )
 
-                # Also notify on permission-needed state
-                needs_perm = (
-                    idle_secs >= idle_threshold
-                    and state["status"] == "permission"
-                    and not prev.get("perm_notified")
-                )
-                if needs_perm:
-                    prev["perm_notified"] = True
-                    pending_tool = state.get("tools", ["?"])[-1]
-                    _watch_log(
-                        f"Permission: {proj_name} (PID {pid}) "
-                        f"tool={pending_tool}"
+                    if is_idle and not prev["notified"]:
+                        prev["notified"] = True
+                        idle_dur = _format_idle_duration(idle_secs)
+                        _watch_log(
+                            f"Idle: {proj_name} (PID {pid}) "
+                            f"idle={idle_dur} "
+                            f"msg=\"{prev.get('last_user_msg', '')[:50]}\""
+                        )
+                        _handle_idle_session(
+                            proj_name, pid, prev, state,
+                            notify,
+                        )
+
+                    # Also notify on permission-needed state
+                    needs_perm = (
+                        idle_secs >= idle_threshold
+                        and state["status"] == "permission"
+                        and not prev.get("perm_notified")
                     )
-                    _handle_permission_session(
-                        proj_name, pid, state, notify,
+                    if needs_perm:
+                        prev["perm_notified"] = True
+                        pending_tool = state.get("tools", ["?"])[-1]
+                        _watch_log(
+                            f"Permission: {proj_name} (PID {pid}) "
+                            f"tool={pending_tool}"
+                        )
+                        _handle_permission_session(
+                            proj_name, pid, state, notify,
+                        )
+
+                except Exception as e:
+                    _watch_log(
+                        f"ERROR: PID {pid} processing failed: {e}"
                     )
 
             # Clean up dead PIDs from cache
@@ -782,6 +793,10 @@ def watch(
     except KeyboardInterrupt:
         _watch_log("Watch stopped by user (Ctrl+C)")
         console.print("\n[dim]Watch stopped.[/dim]")
+    except Exception as e:
+        _watch_log(f"ERROR: Watch crashed: {e}")
+        console.print(f"\n[red]Watch error: {e}[/red]")
+        raise
     finally:
         if _watch_log_file and not _watch_log_file.closed:
             _watch_log_file.close()
