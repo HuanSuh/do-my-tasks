@@ -427,6 +427,12 @@ def _get_last_log_timestamp(log_path: Path) -> datetime | None:
 
 _AMEND_PREFIX = "To tell you how to proceed, the user said:\n"
 
+# System-injected messages to skip (not real user input)
+_SYSTEM_MSG_PREFIXES = (
+    "<",                          # XML tags: <bash-stdout>, <system-reminder>, etc.
+    "This session is being continued from a previous conversation",
+)
+
 
 def _extract_user_text(content) -> str | None:
     """Extract user message text from JSONL user entry content.
@@ -435,6 +441,7 @@ def _extract_user_text(content) -> str | None:
     (Tab-amended permission responses contain user text after
     'To tell you how to proceed, the user said:' prefix).
 
+    Skips system-injected messages (XML tags, context carry-over).
     Returns the first non-empty line, stripped of whitespace.
     """
     raw: str | None = None
@@ -459,6 +466,9 @@ def _extract_user_text(content) -> str | None:
     for line in raw.splitlines():
         stripped = line.strip()
         if stripped:
+            # Skip system-injected messages
+            if any(stripped.startswith(p) for p in _SYSTEM_MSG_PREFIXES):
+                return None
             return stripped
     return None
 
