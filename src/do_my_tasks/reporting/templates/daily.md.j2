@@ -1,0 +1,58 @@
+# Daily Report - {{ date }}
+
+## Summary
+
+{{ summary_text }}
+
+{% if projects %}
+## Projects
+{% for project in projects %}
+
+### {{ project.project_name }} ({{ project.commits|length }} commits, {{ project.sessions|length }} sessions, {{ "%.1f"|format(project.total_session_minutes) }}min)
+
+{% if project.tasks %}
+#### Tasks
+{% for task in project.tasks %}
+- [{{ "x" if task.status.value == "completed" else " " }}] {% if task.priority.value == "high" %}**HIGH**{% elif task.priority.value == "medium" %}MEDIUM{% else %}LOW{% endif %} {{ task.title }}{% if task.rollover_count > 0 %} (rollover x{{ task.rollover_count }}){% endif %}{% if task.requires_review %} **REVIEW NEEDED**{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if project.commits %}
+#### Commits
+{% for commit in project.commits %}
+- `{{ commit.sha[:7] }}` - {{ commit.message.split('\n')[0] }} (+{{ commit.additions }}, -{{ commit.deletions }})
+{% endfor %}
+{% endif %}
+
+---
+{% endfor %}
+{% endif %}
+
+{% if rolled_over_tasks %}
+## Rolled Over Tasks
+
+{% for task in rolled_over_tasks %}
+- [ ] {% if task.priority.value == "high" %}**HIGH**{% elif task.priority.value == "medium" %}MEDIUM{% else %}LOW{% endif %} {{ task.title }} ({{ task.rollover_count }}x rollover){% if task.requires_review %} **REVIEW NEEDED**{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if high_priority_items %}
+## High Priority Items
+
+{% for item in high_priority_items %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+## Statistics
+
+- **Sessions**: {{ total_sessions }}
+- **Commits**: {{ total_commits }}
+- **Files Changed**: {{ total_files_changed }}
+- **Lines Added**: {{ total_additions }}
+- **Lines Deleted**: {{ total_deletions }}
+- **Active Time**: {{ "%.1f"|format(total_active_minutes) }} min
+- **Input Tokens**: {{ "{:,}".format(total_input_tokens) }}
+- **Output Tokens**: {{ "{:,}".format(total_output_tokens) }}
+- **Projects**: {{ projects|length }}
