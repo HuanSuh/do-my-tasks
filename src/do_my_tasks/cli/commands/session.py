@@ -220,19 +220,42 @@ def _find_log_file(cwd: str) -> tuple[Path | None, datetime | None]:
     return None, None
 
 
+def _lsof_find_jsonl(pid: str) -> Path | None:
+    """Find JSONL file opened by a process via lsof."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-p", pid],
+            capture_output=True,
+            text=True,
+        )
+        for line in result.stdout.splitlines():
+            if ".jsonl" in line and "agent-" not in line:
+                path_str = line.split()[-1]
+                path = Path(path_str)
+                if path.suffix == ".jsonl" and path.exists():
+                    return path
+    except OSError:
+        pass
+    return None
+
+
 def _match_pids_to_logs(
     processes: list[dict],
     pid_cwds: dict[str, str],
 ) -> dict[str, tuple[Path | None, datetime | None]]:
     """Match PIDs to their specific JSONL log files.
 
-    Uses file birth time (creation time) to match each PID to the
-    JSONL session file that was created closest to the process start time.
-    Falls back to most recently modified for unmatched PIDs.
+    Uses a 3-tier matching strategy:
+    1. lsof: check if the process has a JSONL file open
+    2. birth time: match non-resume sessions by file creation time
+    3. mtime: match resume sessions to actively modified files
 
     Returns: {pid: (log_path, log_mtime_dt)}
     """
     result: dict[str, tuple[Path | None, datetime | None]] = {}
+
+    def _assign(pid: str, path: Path, mtime: float) -> None:
+        result[pid] = (path, datetime.fromtimestamp(mtime))
 
     # Group PIDs by cwd
     cwd_groups: dict[str, list[dict]] = {}
@@ -251,35 +274,67 @@ def _match_pids_to_logs(
                 result[p["pid"]] = (None, None)
             continue
 
-        # Single PID or single file: simple assignment
+        # Single PID: assign most recent file
         if len(procs) == 1:
-            best = all_files[0]  # Most recent by mtime
-            result[procs[0]["pid"]] = (
-                best[0], datetime.fromtimestamp(best[1]),
-            )
+            best = all_files[0]
+            _assign(procs[0]["pid"], best[0], best[1])
             continue
 
+        # Single file: all PIDs share it
         if len(all_files) == 1:
             for p in procs:
-                result[p["pid"]] = (
-                    all_files[0][0],
-                    datetime.fromtimestamp(all_files[0][1]),
-                )
+                _assign(p["pid"], all_files[0][0], all_files[0][1])
             continue
 
-        # Multiple PIDs & files: match by birth time
+        # Multiple PIDs & files: 3-tier matching
         remaining = list(all_files)
-        unmatched: list[dict] = []
+        file_mtime_map = {str(p): m for p, m in all_files}
 
-        # Sort PIDs by start time (oldest first for stable matching)
-        sorted_procs = sorted(
-            procs,
+        def _remove_from_remaining(target: Path) -> None:
+            nonlocal remaining
+            remaining = [(p, m) for p, m in remaining if p != target]
+
+        # --- Tier 1: lsof ---
+        tier1_unmatched: list[dict] = []
+        for proc in procs:
+            jsonl_path = _lsof_find_jsonl(proc["pid"])
+            if jsonl_path:
+                mtime = file_mtime_map.get(
+                    str(jsonl_path),
+                )
+                if mtime is None:
+                    try:
+                        mtime = jsonl_path.stat().st_mtime
+                    except OSError:
+                        mtime = 0.0
+                _assign(proc["pid"], jsonl_path, mtime)
+                _remove_from_remaining(jsonl_path)
+            else:
+                tier1_unmatched.append(proc)
+
+        if not tier1_unmatched or not remaining:
+            for proc in tier1_unmatched:
+                result.setdefault(proc["pid"], (None, None))
+            continue
+
+        # Separate resume vs normal sessions
+        normal_procs = [
+            p for p in tier1_unmatched if p.get("note") != "--resume"
+        ]
+        resume_procs = [
+            p for p in tier1_unmatched if p.get("note") == "--resume"
+        ]
+
+        # --- Tier 2: birth time (normal sessions only) ---
+        tier2_unmatched: list[dict] = []
+        sorted_normal = sorted(
+            normal_procs,
             key=lambda p: (p["started"] or datetime.min).timestamp(),
         )
 
-        for proc in sorted_procs:
+        for proc in sorted_normal:
             if not proc["started"]:
-                unmatched.append(proc)
+                tier2_unmatched.append(proc)
                 continue
 
             pid_ts = proc["started"].timestamp()
@@ -297,24 +352,43 @@ def _match_pids_to_logs(
                     best_match = (path, mtime)
 
             if best_match:
-                result[proc["pid"]] = (
-                    best_match[0],
-                    datetime.fromtimestamp(best_match[1]),
-                )
-                remaining.remove(best_match)
+                _assign(proc["pid"], best_match[0], best_match[1])
+                _remove_from_remaining(best_match[0])
             else:
-                unmatched.append(proc)
+                tier2_unmatched.append(proc)
 
-        # Assign remaining files to unmatched PIDs by mtime
+        # --- Tier 3: mtime (resume sessions + remaining unmatched) ---
+        tier3_procs = resume_procs + tier2_unmatched
+        # Sort by start time descending — most recent process gets
+        # the most recently modified file
+        tier3_procs.sort(
+            key=lambda p: (p["started"] or datetime.min).timestamp(),
+            reverse=True,
+        )
         remaining.sort(key=lambda x: x[1], reverse=True)
-        for i, proc in enumerate(unmatched):
-            if i < len(remaining):
-                path, mtime = remaining[i]
-                result[proc["pid"]] = (
-                    path, datetime.fromtimestamp(mtime),
-                )
-            else:
-                result[proc["pid"]] = (None, None)
+
+        for proc in tier3_procs:
+            if not remaining:
+                result.setdefault(proc["pid"], (None, None))
+                continue
+
+            if proc["started"] and len(remaining) > 1:
+                pid_ts = proc["started"].timestamp()
+                # Pick files modified after process start (with 1 min tolerance)
+                candidates = [
+                    (p, m) for p, m in remaining
+                    if m >= pid_ts - 60
+                ]
+                if candidates:
+                    best = candidates[0]  # most recent mtime
+                    _assign(proc["pid"], best[0], best[1])
+                    _remove_from_remaining(best[0])
+                    continue
+
+            # Fallback: most recently modified remaining file
+            best = remaining[0]
+            _assign(proc["pid"], best[0], best[1])
+            _remove_from_remaining(best[0])
 
     return result
 
