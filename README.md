@@ -35,7 +35,7 @@ dmt --version
 
 ### 1. 프로젝트 자동 탐색
 
-Claude Code 프로젝트 디렉토리(`~/.claude/projects/`)에서 자동으로 프로젝트를 탐색:
+Claude Code 프로젝트 디렉토리(`~/.claude/projects/`, `~/.claude-profiles/*/projects/`)에서 자동으로 프로젝트를 탐색:
 
 ```bash
 dmt config discover
@@ -87,6 +87,11 @@ dmt collect --project myproject      # 특정 프로젝트만 수집
 수집 대상:
 - Claude Code 세션 로그 (메시지 수, 도구 사용, 토큰 사용량)
 - Git 커밋 (additions/deletions, conventional commit 타입 파싱)
+
+세션 로그 탐색 경로:
+- `~/.claude/projects/` (기본)
+- `~/.claude-profiles/*/projects/` (프로필 사용 시)
+- 워크트리 세션도 자동 감지 (`--claude-worktrees-*` 디렉토리)
 
 ### Evening - 일일 리포트 생성
 
@@ -168,6 +173,29 @@ dmt tasks add --help
 - **Reports**: `~/.config/do_my_tasks/reports/YYYY-MM-DD.md`
 
 환경변수 `DMT_DB_PATH`로 DB 경로 변경 가능.
+
+## Claude Code Session Logs
+
+DMT는 Claude Code의 JSONL 세션 로그를 파싱합니다. 로그 파일 위치:
+
+```
+~/.claude/projects/<encoded-path>/*.jsonl           # 기본 세션
+~/.claude/projects/<encoded-path>--claude-worktrees-<name>/*.jsonl  # 워크트리 세션
+~/.claude-profiles/<profile>/projects/<encoded-path>/*.jsonl        # 프로필 세션
+```
+
+인코딩 규칙: 프로젝트 경로의 `/`가 `-`로 변환됨.
+예: `/Users/me/workspace/myapp` → `-Users-me-workspace-myapp`
+
+현재 실행 중인 Claude 세션 확인:
+
+```bash
+# 라이브 세션 프로세스 확인
+ps aux | grep "[c]laude" | grep -v Helper
+
+# 각 세션의 작업 디렉토리 확인
+lsof -a -p <PID> -d cwd
+```
 
 ## Development
 
