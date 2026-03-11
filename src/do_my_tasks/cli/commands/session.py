@@ -13,6 +13,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from do_my_tasks.cli.output import is_json_mode
+
 app = typer.Typer()
 console = Console()
 
@@ -289,6 +291,10 @@ def _get_session_state(log_path: Path) -> dict:
         last_ts: datetime | None
         last_user_msg: str | None
         tools: list[str]
+        files_modified: list[str]  - files written/edited
+        commands_run: list[str]    - bash commands executed
+        stop_reason: str | None    - "end_turn" | "tool_use"
+        status: str  - "done" | "permission" | "working" | "waiting"
         file_size: int
     """
     state: dict = {
@@ -296,6 +302,10 @@ def _get_session_state(log_path: Path) -> dict:
         "last_ts": None,
         "last_user_msg": None,
         "tools": [],
+        "files_modified": [],
+        "commands_run": [],
+        "stop_reason": None,
+        "status": "waiting",
         "file_size": 0,
     }
     try:
@@ -306,6 +316,9 @@ def _get_session_state(log_path: Path) -> dict:
     lines = _read_tail(log_path, size=32768)
     last_user_msg = None
     tools_after_user: list[str] = []
+    files_modified: list[str] = []
+    commands_run: list[str] = []
+    last_stop_reason: str | None = None
 
     for line in lines:
         line = line.strip()
@@ -328,19 +341,44 @@ def _get_session_state(log_path: Path) -> dict:
             if isinstance(content, str) and content.strip():
                 last_user_msg = content.strip().split("\n")[0]
             tools_after_user = []
+            files_modified = []
+            commands_run = []
+            last_stop_reason = None
         elif msg_type == "assistant":
             state["last_type"] = "assistant"
             message = entry.get("message", {})
+            last_stop_reason = message.get("stop_reason")
             content = message.get("content", [])
             if isinstance(content, list):
                 for block in content:
-                    if (
-                        isinstance(block, dict)
-                        and block.get("type") == "tool_use"
-                    ):
-                        name = block.get("name", "")
-                        if name and name not in tools_after_user:
-                            tools_after_user.append(name)
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") != "tool_use":
+                        continue
+                    name = block.get("name", "")
+                    if name and name not in tools_after_user:
+                        tools_after_user.append(name)
+                    # Extract file paths and commands
+                    inp = block.get("input", {})
+                    if not isinstance(inp, dict):
+                        continue
+                    if name in ("Write", "Edit"):
+                        fp = inp.get("file_path", "")
+                        if fp:
+                            fname = Path(fp).name
+                            if fname not in files_modified:
+                                files_modified.append(fname)
+                    elif name == "Bash":
+                        cmd = inp.get("command", "")
+                        if cmd:
+                            # First token of command
+                            short = cmd.split()[0] if cmd.split() else cmd
+                            # For common patterns, show more
+                            if short in ("poetry", "git", "npm"):
+                                parts = cmd.split()[:3]
+                                short = " ".join(parts)
+                            if short not in commands_run:
+                                commands_run.append(short)
 
         if ts_str:
             try:
@@ -352,6 +390,21 @@ def _get_session_state(log_path: Path) -> dict:
 
     state["last_user_msg"] = last_user_msg
     state["tools"] = tools_after_user[-5:]
+    state["files_modified"] = files_modified[-8:]
+    state["commands_run"] = commands_run[-5:]
+    state["stop_reason"] = last_stop_reason
+
+    # Determine status
+    if state["last_type"] == "assistant":
+        if last_stop_reason == "tool_use":
+            state["status"] = "permission"
+        else:
+            state["status"] = "done"
+    elif state["last_type"] == "user":
+        state["status"] = "working"
+    else:
+        state["status"] = "waiting"
+
     return state
 
 
@@ -417,21 +470,14 @@ def live(
     processes = _find_claude_processes()
 
     if not processes:
-        console.print("[yellow]No running Claude Code sessions found.[/yellow]")
+        if is_json_mode():
+            print(json.dumps({"sessions": [], "total": 0}))
+        else:
+            console.print("[yellow]No running Claude Code sessions found.[/yellow]")
         raise typer.Exit()
 
-    table = Table(title="Live Claude Code Sessions", show_lines=True)
-    table.add_column("PID", style="cyan", width=7)
-    table.add_column("Project", style="bold")
-    table.add_column("Started", style="green")
-    table.add_column("Last Update", style="yellow")
-    table.add_column("Note")
-    if not detail:
-        table.add_column("Log Path", style="dim")
-    else:
-        table.add_column("Last Message", style="white")
-        table.add_column("Tools", style="dim")
-
+    # Build session data for all processes
+    sessions_data: list[dict] = []
     for proc in sorted(
         processes,
         key=lambda p: p["started"] or datetime.min,
@@ -446,48 +492,91 @@ def live(
 
         if log_path:
             last_ts = _get_last_log_timestamp(log_path)
-            last_update = last_ts.strftime("%m/%d %H:%M") if last_ts else (
+            last_update_str = last_ts.strftime("%m/%d %H:%M") if last_ts else (
                 log_mtime.strftime("%m/%d %H:%M") if log_mtime else "-"
             )
         else:
-            last_update = "-"
+            last_ts = None
+            last_update_str = "-"
 
         started_str = (
             proc["started"].strftime("%m/%d %H:%M")
             if proc["started"] else "?"
         )
 
+        session_info: dict = {
+            "pid": proc["pid"],
+            "project": project,
+            "started": proc["started"].isoformat() if proc["started"] else None,
+            "started_display": started_str,
+            "last_update": last_ts.isoformat() if last_ts else (
+                log_mtime.isoformat() if log_mtime else None
+            ),
+            "last_update_display": last_update_str,
+            "note": proc["note"],
+            "log_path": str(log_path) if log_path else None,
+        }
+
+        if detail and log_path:
+            activity = _get_session_activity(log_path)
+            session_info["last_message"] = activity["last_message"]
+            session_info["tools"] = activity["tools"]
+            session_info["time_ago"] = activity["time_ago"]
+        elif detail:
+            session_info["last_message"] = None
+            session_info["tools"] = []
+            session_info["time_ago"] = None
+
+        sessions_data.append(session_info)
+
+    # JSON output
+    if is_json_mode():
+        print(json.dumps({
+            "sessions": sessions_data,
+            "total": len(sessions_data),
+        }, ensure_ascii=False))
+        return
+
+    # Rich table output
+    table = Table(title="Live Claude Code Sessions", show_lines=True)
+    table.add_column("PID", style="cyan", width=7)
+    table.add_column("Project", style="bold")
+    table.add_column("Started", style="green")
+    table.add_column("Last Update", style="yellow")
+    table.add_column("Note")
+    if not detail:
+        table.add_column("Log Path", style="dim")
+    else:
+        table.add_column("Last Message", style="white")
+        table.add_column("Tools", style="dim")
+
+    for s in sessions_data:
         if not detail:
-            if log_path:
+            if s["log_path"]:
                 if wide:
-                    display_path = str(log_path).replace(
+                    display_path = s["log_path"].replace(
                         str(Path.home()), "~",
                     )
                 else:
-                    display_path = log_path.name
+                    display_path = Path(s["log_path"]).name
             else:
                 display_path = "(no log)"
             table.add_row(
-                proc["pid"], project, started_str,
-                last_update, proc["note"], display_path,
+                s["pid"], s["project"], s["started_display"],
+                s["last_update_display"], s["note"], display_path,
             )
         else:
-            if log_path:
-                activity = _get_session_activity(log_path)
-                msg = activity["last_message"] or "(no message)"
-                if activity["time_ago"]:
-                    msg = f"{msg} [dim]({activity['time_ago']})[/dim]"
-                tools_str = ", ".join(activity["tools"]) if activity["tools"] else "-"
-            else:
-                msg = "(no log)"
-                tools_str = "-"
+            msg = s.get("last_message") or "(no message)"
+            if s.get("time_ago"):
+                msg = f"{msg} [dim]({s['time_ago']})[/dim]"
+            tools_str = ", ".join(s.get("tools", [])) if s.get("tools") else "-"
             table.add_row(
-                proc["pid"], project, started_str,
-                last_update, proc["note"], msg, tools_str,
+                s["pid"], s["project"], s["started_display"],
+                s["last_update_display"], s["note"], msg, tools_str,
             )
 
     console.print(table)
-    console.print(f"\n[dim]Total: {len(processes)} sessions[/dim]")
+    console.print(f"\n[dim]Total: {len(sessions_data)} sessions[/dim]")
 
 
 @app.command()
@@ -579,10 +668,17 @@ def watch(
                     prev["size"] = state["file_size"]
                     prev["last_change"] = now
                     prev["notified"] = False
+                    prev["perm_notified"] = False
                     prev["last_user_msg"] = state[
                         "last_user_msg"
                     ]
                     prev["tools"] = state["tools"]
+                    prev["files_modified"] = state[
+                        "files_modified"
+                    ]
+                    prev["commands_run"] = state[
+                        "commands_run"
+                    ]
                     continue
 
                 # File unchanged - check if idle long enough
@@ -597,6 +693,18 @@ def watch(
                     _handle_idle_session(
                         proj_name, pid, prev, state,
                         notify,
+                    )
+
+                # Also notify on permission-needed state
+                needs_perm = (
+                    idle_secs >= idle_threshold
+                    and state["status"] == "permission"
+                    and not prev.get("perm_notified")
+                )
+                if needs_perm:
+                    prev["perm_notified"] = True
+                    _handle_permission_session(
+                        proj_name, pid, state, notify,
                     )
 
             # Clean up dead PIDs from cache
@@ -614,6 +722,33 @@ def watch(
         console.print("\n[dim]Watch stopped.[/dim]")
 
 
+STATUS_EMOJI = {
+    "done": "✅",
+    "permission": "⏸️",
+    "working": "🔄",
+    "waiting": "💤",
+}
+
+
+def _build_work_summary(prev: dict, state: dict) -> str:
+    """Build a human-readable summary of work done."""
+    parts: list[str] = []
+
+    files = prev.get("files_modified") or state.get("files_modified", [])
+    cmds = prev.get("commands_run") or state.get("commands_run", [])
+
+    if files:
+        if len(files) <= 3:
+            parts.append(", ".join(files))
+        else:
+            parts.append(f"{', '.join(files[:3])} 외 {len(files) - 3}개")
+
+    if cmds:
+        parts.append(" | ".join(cmds[:3]))
+
+    return " → ".join(parts) if parts else ""
+
+
 def _handle_idle_session(
     project: str,
     pid: str,
@@ -623,47 +758,93 @@ def _handle_idle_session(
 ) -> None:
     """Handle a session that has become idle."""
     now_str = datetime.now().strftime("%H:%M:%S")
+    emoji = STATUS_EMOJI.get(state.get("status", "done"), "✅")
 
     # What did it just finish?
     user_msg = prev.get("last_user_msg", "")
     if user_msg:
         user_msg = _truncate_display(user_msg, 40)
-    tools = ", ".join(prev.get("tools", []))
-    done_text = f'"{user_msg}"' if user_msg else "(unknown)"
-    if tools:
-        done_text += f" → {tools}"
+
+    summary = _build_work_summary(prev, state)
+
+    # Build body lines
+    body_lines = []
+    body_lines.append(
+        f"{emoji} [bold green]완료[/bold green] — "
+        f"[cyan]{project}[/cyan] (PID {pid})"
+    )
+    if user_msg:
+        body_lines.append(f'[dim]요청:[/dim] "{user_msg}"')
+    if summary:
+        body_lines.append(f"[dim]작업:[/dim] {summary}")
 
     # Get next tasks
     next_tasks = _get_next_tasks(project)
+    if next_tasks:
+        body_lines.append("")
+        body_lines.append("[dim]다음 태스크:[/dim]")
+        for i, t in enumerate(next_tasks):
+            prefix = "→" if i == 0 else " "
+            body_lines.append(f"  {prefix} {t}")
+    else:
+        body_lines.append("[dim]다음 태스크 없음[/dim]")
 
-    # Build console output
     console.print()
     console.print(
         Panel(
-            f"[bold yellow]Session idle[/bold yellow] — "
-            f"[cyan]{project}[/cyan] (PID {pid})\n"
-            f"[dim]Completed:[/dim] {done_text}\n"
-            + (
-                "\n".join(
-                    f"  {'→' if i == 0 else ' '} {t}"
-                    for i, t in enumerate(next_tasks)
-                )
-                if next_tasks
-                else "[dim]No pending tasks.[/dim]"
-            ),
+            "\n".join(body_lines),
             title=f"[bold]{now_str}[/bold]",
-            border_style="yellow",
+            border_style="green",
         )
     )
 
     # OS notification
     if send_notify:
-        notif_msg = (
-            f"Done: {user_msg or 'task'}"
-        )
+        notif_title = f"{emoji} DMT — {project}"
+        notif_parts = []
+        if user_msg:
+            notif_parts.append(f"완료: {user_msg}")
+        if summary:
+            notif_parts.append(summary)
         if next_tasks:
-            # Show first task in notification
-            notif_msg += f"\\nNext: {next_tasks[0]}"
+            notif_parts.append(f"Next: {next_tasks[0]}")
         _send_notification(
-            f"DMT — {project}", notif_msg,
+            notif_title,
+            "\\n".join(notif_parts) if notif_parts else "작업 완료",
+        )
+
+
+def _handle_permission_session(
+    project: str,
+    pid: str,
+    state: dict,
+    send_notify: bool,
+) -> None:
+    """Handle a session waiting for user permission."""
+    now_str = datetime.now().strftime("%H:%M:%S")
+    emoji = STATUS_EMOJI["permission"]
+
+    # Which tool needs permission?
+    tools = state.get("tools", [])
+    pending_tool = tools[-1] if tools else "unknown"
+
+    body_lines = [
+        f"{emoji} [bold yellow]권한 필요[/bold yellow] — "
+        f"[cyan]{project}[/cyan] (PID {pid})",
+        f"[dim]대기 중:[/dim] {pending_tool} 실행 승인 대기",
+    ]
+
+    console.print()
+    console.print(
+        Panel(
+            "\n".join(body_lines),
+            title=f"[bold]{now_str}[/bold]",
+            border_style="yellow",
+        )
+    )
+
+    if send_notify:
+        _send_notification(
+            f"{emoji} DMT — {project}",
+            f"권한 필요: {pending_tool} 승인 대기 중",
         )
