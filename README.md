@@ -108,6 +108,18 @@ dmt summary --date 2026-03-10        # 특정 날짜 리포트
 - 토큰 사용량
 - 활동 시간
 
+## Live Sessions
+
+현재 실행 중인 Claude Code 세션을 조회:
+
+```bash
+dmt sessions                # 라이브 세션 목록
+dmt sessions live           # 동일
+dmt sessions --wide         # 전체 로그 경로 표시
+```
+
+PID, 프로젝트명, 시작 시각, 마지막 업데이트, 로그 파일 경로를 보여줍니다.
+
 ## Task Management
 
 ```bash

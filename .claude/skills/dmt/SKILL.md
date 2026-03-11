@@ -23,7 +23,7 @@ DMT 명령어:
   collect   - 오늘의 활동 데이터 수집
   summary   - 일일 리포트 생성
   plan      - 오늘의 TODO 계획
-  tasks     - 태스크 관리 (list/add/complete/update/delete)
+  tasks     - 태스크 관리 (list/add/complete/update/delete/rollover)
   config    - 프로젝트 설정 (discover/add/remove/show/list)
 ```
 
@@ -42,11 +42,25 @@ DMT 명령어:
 | `/dmt summary --save` | `poetry run dmt summary --save` |
 | `/dmt plan` | `poetry run dmt plan` |
 | `/dmt plan --save` | `poetry run dmt plan --save` |
-| `/dmt tasks list` | `poetry run dmt tasks list` |
 | `/dmt tasks add "Fix bug" --priority high` | `poetry run dmt tasks add "Fix bug" --priority high` |
+| `/dmt tasks add "Write tests" --priority medium` | `poetry run dmt tasks add "Write tests" --priority medium` |
+| `/dmt tasks list` | `poetry run dmt tasks list` |
+| `/dmt tasks list --status pending` | `poetry run dmt tasks list --status pending` |
+| `/dmt tasks list --project myapp` | `poetry run dmt tasks list --project myapp` |
 | `/dmt tasks complete T-0001` | `poetry run dmt tasks complete T-0001` |
+| `/dmt tasks update T-0001 --priority high` | `poetry run dmt tasks update T-0001 --priority high` |
+| `/dmt tasks update T-0001 --status in_progress` | `poetry run dmt tasks update T-0001 --status in_progress` |
+| `/dmt tasks delete T-0002` | `poetry run dmt tasks delete T-0002` |
+| `/dmt tasks rollover` | `poetry run dmt tasks rollover` |
+| `/dmt tasks rollover --from-date 2026-03-10 --to-date 2026-03-11` | `poetry run dmt tasks rollover --from-date 2026-03-10 --to-date 2026-03-11` |
 | `/dmt config discover` | `poetry run dmt config discover` |
+| `/dmt config add myproject /path/to/project` | `poetry run dmt config add myproject /path/to/project` |
+| `/dmt config remove myproject` | `poetry run dmt config remove myproject` |
 | `/dmt config show` | `poetry run dmt config show` |
+| `/dmt config list` | `poetry run dmt config list` |
+| `/dmt collect --project myproject` | `poetry run dmt collect --project myproject` |
+| `/dmt summary --date 2026-03-10` | `poetry run dmt summary --date 2026-03-10` |
+| `/dmt --verbose collect` | `poetry run dmt --verbose collect` |
 
 ## 에러 처리
 
