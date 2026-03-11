@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -17,7 +17,7 @@ class SchemaVersionRow(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
-    applied_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    applied_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
 
 
 class ProjectRow(Base):
@@ -28,7 +28,7 @@ class ProjectRow(Base):
     path: Mapped[str] = mapped_column(String(1024), nullable=False)
     main_branch: Mapped[str] = mapped_column(String(255), default="main")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
 
 
 class SessionRow(Base):
@@ -52,7 +52,7 @@ class SessionRow(Base):
     cwd: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     git_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     date: Mapped[str] = mapped_column(String(10), nullable=False)  # YYYY-MM-DD
-    collected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
 
 
 class CommitRow(Base):
@@ -72,7 +72,7 @@ class CommitRow(Base):
     commit_type: Mapped[str] = mapped_column(String(50), default="other")
     is_ai_assisted: Mapped[bool] = mapped_column(Boolean, default=False)
     date: Mapped[str] = mapped_column(String(10), nullable=False)  # YYYY-MM-DD
-    collected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
 
 
 class TaskRow(Base):
@@ -84,7 +84,7 @@ class TaskRow(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     priority: Mapped[str] = mapped_column(String(50), default="medium")
-    created_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_date: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
     completed_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     source_commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
     rollover_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -104,7 +104,7 @@ class TaskHistoryRow(Base):
     new_status: Mapped[str] = mapped_column(String(50), nullable=False)
     from_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     to_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
 
 
 class DailySummaryRow(Base):
@@ -122,7 +122,7 @@ class DailySummaryRow(Base):
     total_output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     summary_text: Mapped[str] = mapped_column(Text, default="")
     report_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))
 
 
 class CollectionStateRow(Base):
@@ -134,4 +134,4 @@ class CollectionStateRow(Base):
     file_path: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False)
     last_modified: Mapped[float] = mapped_column(Float, nullable=False)
     last_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    last_collected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_collected_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(tz=timezone.utc))

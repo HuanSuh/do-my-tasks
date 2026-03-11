@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from do_my_tasks.models.session import ClaudeSession
 
@@ -180,6 +181,34 @@ def find_session_files(claude_projects_dir: str, project_path: str | None = None
     return files
 
 
+def _get_local_tz() -> ZoneInfo:
+    """Get the system's local timezone."""
+    try:
+        import time as _time
+        tz_name = _time.tzname[0]
+        # Try the IANA name from TZ env or system
+        import os
+        tz_env = os.environ.get("TZ")
+        if tz_env:
+            return ZoneInfo(tz_env)
+        # Fallback: compute offset and use a well-known zone
+        local_dt = datetime.now(timezone.utc).astimezone()
+        return local_dt.tzinfo  # type: ignore[return-value]
+    except Exception:
+        return timezone.utc  # type: ignore[return-value]
+
+
+def _to_local_date_str(dt: datetime) -> str:
+    """Convert a datetime to local date string (YYYY-MM-DD).
+
+    Handles both aware (UTC) and naive (assumed local) datetimes.
+    """
+    if dt.tzinfo is not None:
+        local_dt = dt.astimezone(_get_local_tz())
+        return local_dt.strftime("%Y-%m-%d")
+    return dt.strftime("%Y-%m-%d")
+
+
 def parse_sessions_for_date(
     claude_projects_dir: str,
     date_str: str,
@@ -200,8 +229,8 @@ def parse_sessions_for_date(
         if session is None:
             continue
 
-        # Check if session falls on the target date
-        session_date = session.start_time.strftime("%Y-%m-%d")
+        # Check if session falls on the target date (local timezone)
+        session_date = _to_local_date_str(session.start_time)
         if session_date == date_str:
             sessions.append(session)
 

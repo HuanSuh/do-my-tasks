@@ -126,6 +126,12 @@ dmt --json config show
 dmt --json config list
 ```
 
+## 자주 발생하는 이슈
+
+- **세션이 안 보일 때**: `ps axo pid,args | grep claude`로 프로세스 존재 확인. `"/claude"` 또는 `"claude"` args 매칭 필요
+- **watch에서 idle 감지 안 될 때**: `--idle` 값을 낮추거나, 로그 파일 갱신 여부 확인 (`~/.dmt/logs/`)
+- **워크트리 세션 프로젝트명이 이상할 때**: `--claude-worktrees-` 접미사가 자동 정규화됨
+
 ## 에러 처리
 
 - 명령 실패 시 `--help` 플래그를 붙여 해당 서브커맨드의 도움말을 보여주기
