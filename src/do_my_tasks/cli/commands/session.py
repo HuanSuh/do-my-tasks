@@ -153,8 +153,8 @@ def _get_cwd(pid: str) -> str | None:
     return None
 
 
-def _find_log_file(cwd: str) -> tuple[Path | None, datetime | None]:
-    """Find the most recent JSONL log file for a given project cwd.
+def _get_project_log_dirs(cwd: str) -> list[Path]:
+    """Get all log directories for a project cwd.
 
     Searches both ~/.claude/projects/ and ~/.claude-profiles/*/projects/.
     Handles worktree paths (.claude/worktrees/<name>) by searching for
@@ -189,23 +189,134 @@ def _find_log_file(cwd: str) -> tuple[Path | None, datetime | None]:
                 if d.is_dir() and d.name.endswith(f"--claude-worktrees-{wt_name}"):
                     search_dirs.append(d)
 
-    best_file: Path | None = None
-    best_mtime: float = 0
+    return search_dirs
 
-    for search_dir in search_dirs:
+
+def _find_all_log_files(cwd: str) -> list[tuple[Path, float]]:
+    """Find all JSONL log files for a project cwd.
+
+    Returns list of (path, mtime) sorted by mtime descending.
+    """
+    files: list[tuple[Path, float]] = []
+    for search_dir in _get_project_log_dirs(cwd):
         for jsonl in search_dir.glob("*.jsonl"):
             if jsonl.name.startswith("agent-"):
                 continue
-            mtime = jsonl.stat().st_mtime
-            if mtime > best_mtime:
-                best_mtime = mtime
-                best_file = jsonl
+            try:
+                mtime = jsonl.stat().st_mtime
+                files.append((jsonl, mtime))
+            except OSError:
+                continue
+    files.sort(key=lambda x: x[1], reverse=True)
+    return files
 
-    if best_file:
-        mod_time = datetime.fromtimestamp(best_mtime)
-        return best_file, mod_time
 
+def _find_log_file(cwd: str) -> tuple[Path | None, datetime | None]:
+    """Find the most recent JSONL log file for a given project cwd."""
+    files = _find_all_log_files(cwd)
+    if files:
+        best, mtime = files[0]
+        return best, datetime.fromtimestamp(mtime)
     return None, None
+
+
+def _match_pids_to_logs(
+    processes: list[dict],
+    pid_cwds: dict[str, str],
+) -> dict[str, tuple[Path | None, datetime | None]]:
+    """Match PIDs to their specific JSONL log files.
+
+    Uses file birth time (creation time) to match each PID to the
+    JSONL session file that was created closest to the process start time.
+    Falls back to most recently modified for unmatched PIDs.
+
+    Returns: {pid: (log_path, log_mtime_dt)}
+    """
+    result: dict[str, tuple[Path | None, datetime | None]] = {}
+
+    # Group PIDs by cwd
+    cwd_groups: dict[str, list[dict]] = {}
+    for proc in processes:
+        cwd = pid_cwds.get(proc["pid"])
+        if not cwd:
+            result[proc["pid"]] = (None, None)
+            continue
+        cwd_groups.setdefault(cwd, []).append(proc)
+
+    for cwd, procs in cwd_groups.items():
+        all_files = _find_all_log_files(cwd)
+
+        if not all_files:
+            for p in procs:
+                result[p["pid"]] = (None, None)
+            continue
+
+        # Single PID or single file: simple assignment
+        if len(procs) == 1:
+            best = all_files[0]  # Most recent by mtime
+            result[procs[0]["pid"]] = (
+                best[0], datetime.fromtimestamp(best[1]),
+            )
+            continue
+
+        if len(all_files) == 1:
+            for p in procs:
+                result[p["pid"]] = (
+                    all_files[0][0],
+                    datetime.fromtimestamp(all_files[0][1]),
+                )
+            continue
+
+        # Multiple PIDs & files: match by birth time
+        remaining = list(all_files)
+        unmatched: list[dict] = []
+
+        # Sort PIDs by start time (oldest first for stable matching)
+        sorted_procs = sorted(
+            procs,
+            key=lambda p: (p["started"] or datetime.min).timestamp(),
+        )
+
+        for proc in sorted_procs:
+            if not proc["started"]:
+                unmatched.append(proc)
+                continue
+
+            pid_ts = proc["started"].timestamp()
+            best_match = None
+            best_delta = 900.0  # 15 min tolerance
+
+            for path, mtime in remaining:
+                try:
+                    birth = path.stat().st_birthtime
+                except (OSError, AttributeError):
+                    continue
+                delta = abs(birth - pid_ts)
+                if delta < best_delta:
+                    best_delta = delta
+                    best_match = (path, mtime)
+
+            if best_match:
+                result[proc["pid"]] = (
+                    best_match[0],
+                    datetime.fromtimestamp(best_match[1]),
+                )
+                remaining.remove(best_match)
+            else:
+                unmatched.append(proc)
+
+        # Assign remaining files to unmatched PIDs by mtime
+        remaining.sort(key=lambda x: x[1], reverse=True)
+        for i, proc in enumerate(unmatched):
+            if i < len(remaining):
+                path, mtime = remaining[i]
+                result[proc["pid"]] = (
+                    path, datetime.fromtimestamp(mtime),
+                )
+            else:
+                result[proc["pid"]] = (None, None)
+
+    return result
 
 
 def _read_tail(log_path: Path, size: int = 4096) -> list[str]:
@@ -519,6 +630,16 @@ def live(
             console.print("[yellow]No running Claude Code sessions found.[/yellow]")
         raise typer.Exit()
 
+    # Resolve cwds for all PIDs first
+    pid_cwds: dict[str, str] = {}
+    for proc in processes:
+        cwd = _get_cwd(proc["pid"])
+        if cwd:
+            pid_cwds[proc["pid"]] = cwd
+
+    # Match PIDs to their specific log files
+    pid_logs = _match_pids_to_logs(processes, pid_cwds)
+
     # Build session data for all processes
     sessions_data: list[dict] = []
     for proc in sorted(
@@ -526,11 +647,11 @@ def live(
         key=lambda p: p["started"] or datetime.min,
         reverse=True,
     ):
-        cwd = _get_cwd(proc["pid"])
+        cwd = pid_cwds.get(proc["pid"])
         project = Path(cwd).name if cwd else "?"
 
-        log_path, log_mtime = (
-            _find_log_file(cwd) if cwd else (None, None)
+        log_path, log_mtime = pid_logs.get(
+            proc["pid"], (None, None),
         )
 
         if log_path:
@@ -678,16 +799,24 @@ def watch(
                 time.sleep(interval)
                 continue
 
+            # Resolve cwds for new PIDs
+            for proc in processes:
+                pid = proc["pid"]
+                if pid not in pid_cwd_cache:
+                    try:
+                        cwd = _get_cwd(pid)
+                        if cwd:
+                            pid_cwd_cache[pid] = cwd
+                    except Exception as e:
+                        _watch_log_error(f"cwd lookup for PID {pid}", e)
+
+            # Match PIDs to logs (handles same-project dedup)
+            pid_logs = _match_pids_to_logs(processes, pid_cwd_cache)
+
             for proc in processes:
                 pid = proc["pid"]
 
                 try:
-                    # Cache cwd lookups (expensive lsof call)
-                    if pid not in pid_cwd_cache:
-                        cwd = _get_cwd(pid)
-                        if cwd:
-                            pid_cwd_cache[pid] = cwd
-
                     cwd = pid_cwd_cache.get(pid)
                     if not cwd:
                         continue
@@ -696,7 +825,7 @@ def watch(
                     if project and proj_name != project:
                         continue
 
-                    log_path, _ = _find_log_file(cwd)
+                    log_path, _ = pid_logs.get(pid, (None, None))
                     if not log_path:
                         continue
 
@@ -1018,6 +1147,36 @@ def clean(
 
     live_pids = {p["pid"] for p in processes}
 
+    # Resolve cwds and match logs for all processes
+    pid_cwds: dict[str, str] = {}
+    for proc in processes:
+        cwd = _get_cwd(proc["pid"])
+        if cwd:
+            pid_cwds[proc["pid"]] = cwd
+    pid_logs = _match_pids_to_logs(processes, pid_cwds)
+
+    def _build_session_info(pid: str, proc: dict) -> dict:
+        cwd = pid_cwds.get(pid)
+        project = Path(cwd).name if cwd else "?"
+        log_path, _ = pid_logs.get(pid, (None, None))
+        state = _get_session_state(log_path) if log_path else {}
+        last_msg = state.get("last_user_msg") or ""
+        if last_msg:
+            last_msg = _truncate_display(last_msg.split("\n")[0], 35)
+        try:
+            mtime = log_path.stat().st_mtime if log_path else 0
+            idle_secs = time.time() - mtime if mtime else 0
+        except OSError:
+            idle_secs = 0
+        return {
+            "pid": pid,
+            "project": project,
+            "started": proc["started"],
+            "idle_secs": idle_secs,
+            "last_msg": last_msg,
+            "status": state.get("status", "?"),
+        }
+
     # If specific PIDs given, target those directly
     if pids:
         target_sessions: list[dict] = []
@@ -1029,68 +1188,21 @@ def clean(
                 )
                 continue
             proc = next(p for p in processes if p["pid"] == pid)
-            cwd = _get_cwd(pid)
-            project = Path(cwd).name if cwd else "?"
-            log_path, _ = _find_log_file(cwd) if cwd else (None, None)
-            state = _get_session_state(log_path) if log_path else {}
-            last_msg = state.get("last_user_msg") or ""
-            if last_msg:
-                last_msg = _truncate_display(last_msg.split("\n")[0], 35)
-            try:
-                mtime = log_path.stat().st_mtime if log_path else 0
-                idle_secs = time.time() - mtime if mtime else 0
-            except OSError:
-                idle_secs = 0
-            target_sessions.append({
-                "pid": pid,
-                "project": project,
-                "started": proc["started"],
-                "idle_secs": idle_secs,
-                "last_msg": last_msg,
-                "status": state.get("status", "?"),
-            })
+            target_sessions.append(_build_session_info(pid, proc))
         if not target_sessions:
             raise typer.Exit(1)
         idle_sessions = target_sessions
     else:
         threshold = idle_minutes * 60
-        now = time.time()
         idle_sessions: list[dict] = []
 
         for proc in processes:
-            cwd = _get_cwd(proc["pid"])
-            if not cwd:
-                continue
-
-            project = Path(cwd).name
-            log_path, _ = _find_log_file(cwd) if cwd else (None, None)
-
-            if not log_path:
-                continue
-
-            state = _get_session_state(log_path)
-
-            # Calculate idle time from file mtime
-            try:
-                mtime = log_path.stat().st_mtime
-                idle_secs = now - mtime
-            except OSError:
-                continue
-
-            if idle_secs >= threshold and state["last_type"] == "assistant":
-                last_msg = state.get("last_user_msg") or ""
-                if last_msg:
-                    last_msg = _truncate_display(
-                        last_msg.split("\n")[0], 35,
-                    )
-                idle_sessions.append({
-                    "pid": proc["pid"],
-                    "project": project,
-                    "started": proc["started"],
-                    "idle_secs": idle_secs,
-                    "last_msg": last_msg,
-                    "status": state.get("status", "?"),
-                })
+            info = _build_session_info(proc["pid"], proc)
+            if (
+                info["idle_secs"] >= threshold
+                and info["status"] in ("done", "permission")
+            ):
+                idle_sessions.append(info)
 
     if not idle_sessions:
         console.print(
