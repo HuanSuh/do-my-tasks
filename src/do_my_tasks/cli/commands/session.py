@@ -1029,6 +1029,7 @@ def watch(
                         idle_msg = (prev.get('last_user_msg') or '')[:50]
                         _watch_log(
                             f"Idle: {proj_name} (PID {pid}) "
+                            f"status={state.get('status', '?')} "
                             f"idle={idle_dur}"
                             + (f" msg=\"{idle_msg}\"" if idle_msg else "")
                         )
@@ -1048,6 +1049,7 @@ def watch(
                         pending_tool = state.get("tools", ["?"])[-1]
                         _watch_log(
                             f"Permission: {proj_name} (PID {pid}) "
+                            f"status={state.get('status', '?')} "
                             f"tool={pending_tool}"
                         )
                         _handle_permission_session(
@@ -1155,7 +1157,8 @@ def _handle_idle_session(
     # Build body lines
     body_lines = []
     body_lines.append(
-        f"{emoji} [bold green]완료[/bold green] — "
+        f"{emoji} [bold green]완료[/bold green] "
+        f"[dim]({state.get('status', 'idle')})[/dim] — "
         f"[cyan]{project}[/cyan] (PID {pid})"
     )
     if user_msg:
@@ -1214,7 +1217,8 @@ def _handle_permission_session(
     pending_tool = tools[-1] if tools else "unknown"
 
     body_lines = [
-        f"{emoji} [bold yellow]권한 필요[/bold yellow] — "
+        f"{emoji} [bold yellow]권한 필요[/bold yellow] "
+        f"[dim]({state.get('status', 'permission')})[/dim] — "
         f"[cyan]{project}[/cyan] (PID {pid})",
         f"[dim]대기 중:[/dim] {pending_tool} 실행 승인 대기",
     ]

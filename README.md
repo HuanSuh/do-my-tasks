@@ -151,12 +151,12 @@ dmt sessions watch --no-notify            # OS 알림 끄기
 
 Watch 모드에서 로그 파일 크기 변화와 경과 시간을 기반으로 판정하는 추적 상태:
 
-| Watch State | 판정 기준 | 의미 | 알림 |
-|-------------|-----------|------|------|
-| `active` | 로그 파일 크기 변화 있음 | 세션이 작업 진행 중 | 없음 |
-| `idle` | 파일 변화 없음 + threshold 초과 + status=idle | 작업 완료 후 유휴 | ✅ 완료 알림 + 다음 태스크 |
-| `permission` | 파일 변화 없음 + threshold 초과 + status=permission | 도구 승인 대기 방치 | ⏸️ 권한 필요 알림 |
-| `waiting` | 파일 변화 없음 + threshold 초과 + 활동 기록 없음 | 세션 열림, 미사용 | 없음 |
+| Watch State | Session Status | 판정 기준 | 의미 | 알림 |
+|-------------|---------------|-----------|------|------|
+| `active` | any | 로그 파일 크기 변화 있음 | 세션이 작업 진행 중 | 없음 |
+| `idle` | `idle` | 파일 변화 없음 + threshold 초과 | 작업 완료 후 유휴 | ✅ 완료 알림 + 다음 태스크 |
+| `permission` | `permission` | 파일 변화 없음 + threshold 초과 | 도구 승인 대기 방치 | ⏸️ 권한 필요 알림 |
+| `waiting` | `waiting` | 파일 변화 없음 + threshold 초과 + 활동 기록 없음 | 세션 열림, 미사용 | 없음 |
 
 - Session Status는 JSONL 로그 파싱 결과 (세션이 지금 무엇을 하고 있는지)
 - Watch State는 파일 변화 + 시간 기반 추적 결과 (모니터링 관점에서 어떤 상태인지)
