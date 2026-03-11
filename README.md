@@ -116,9 +116,12 @@ dmt summary --date 2026-03-10        # 특정 날짜 리포트
 dmt sessions                # 라이브 세션 목록
 dmt sessions live           # 동일
 dmt sessions --wide         # 전체 로그 경로 표시
+dmt sessions --detail       # 각 세션의 마지막 메시지 & 도구 사용 표시
+dmt sessions -d             # --detail 단축
 ```
 
 PID, 프로젝트명, 시작 시각, 마지막 업데이트, 로그 파일 경로를 보여줍니다.
+`--detail` 모드에서는 각 세션의 마지막 유저 메시지, 사용된 도구, 경과 시간을 추가로 표시합니다.
 
 ## Task Management
 
