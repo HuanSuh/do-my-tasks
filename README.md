@@ -123,6 +123,22 @@ dmt sessions -d             # --detail 단축
 PID, 프로젝트명, 시작 시각, 마지막 업데이트, 로그 파일 경로를 보여줍니다.
 `--detail` 모드에서는 각 세션의 마지막 유저 메시지, 사용된 도구, 경과 시간을 추가로 표시합니다.
 
+### Watch Mode
+
+세션을 실시간 모니터링하고, 작업 완료 후 idle 상태가 되면 다음 태스크를 알림으로 전달:
+
+```bash
+dmt sessions watch                        # 기본 (10초 폴링, 30초 idle 감지)
+dmt sessions watch --interval 5 --idle 15 # 커스텀 간격
+dmt sessions watch --project myapp        # 특정 프로젝트만 감시
+dmt sessions watch --no-notify            # OS 알림 끄기
+```
+
+idle 감지 시 표시 내용:
+- 완료된 작업 (마지막 유저 메시지 + 사용 도구)
+- 다음 pending 태스크 목록 (해당 프로젝트 우선)
+- macOS 알림 (Glass 사운드)
+
 ## Task Management
 
 ```bash

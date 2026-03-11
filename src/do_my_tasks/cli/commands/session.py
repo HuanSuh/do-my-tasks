@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 app = typer.Typer()
@@ -279,6 +281,116 @@ def _get_session_activity(log_path: Path) -> dict:
     return result
 
 
+def _get_session_state(log_path: Path) -> dict:
+    """Determine current session state from the JSONL log tail.
+
+    Returns dict with:
+        last_type: "user" | "assistant" | None
+        last_ts: datetime | None
+        last_user_msg: str | None
+        tools: list[str]
+        file_size: int
+    """
+    state: dict = {
+        "last_type": None,
+        "last_ts": None,
+        "last_user_msg": None,
+        "tools": [],
+        "file_size": 0,
+    }
+    try:
+        state["file_size"] = log_path.stat().st_size
+    except OSError:
+        return state
+
+    lines = _read_tail(log_path, size=32768)
+    last_user_msg = None
+    tools_after_user: list[str] = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        msg_type = entry.get("type")
+        ts_str = entry.get("timestamp")
+
+        if msg_type == "user":
+            if entry.get("isMeta"):
+                continue
+            state["last_type"] = "user"
+            message = entry.get("message", {})
+            content = message.get("content", "")
+            if isinstance(content, str) and content.strip():
+                last_user_msg = content.strip().split("\n")[0]
+            tools_after_user = []
+        elif msg_type == "assistant":
+            state["last_type"] = "assistant"
+            message = entry.get("message", {})
+            content = message.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") == "tool_use"
+                    ):
+                        name = block.get("name", "")
+                        if name and name not in tools_after_user:
+                            tools_after_user.append(name)
+
+        if ts_str:
+            try:
+                state["last_ts"] = datetime.fromisoformat(
+                    ts_str.replace("Z", "+00:00")
+                )
+            except ValueError:
+                pass
+
+    state["last_user_msg"] = last_user_msg
+    state["tools"] = tools_after_user[-5:]
+    return state
+
+
+def _send_notification(title: str, message: str) -> None:
+    """Send macOS notification via osascript."""
+    script = (
+        f'display notification "{message}" '
+        f'with title "{title}" sound name "Glass"'
+    )
+    try:
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _get_next_tasks(project_name: str | None = None) -> list[str]:
+    """Get pending tasks, optionally filtered by project."""
+    try:
+        from do_my_tasks.core.task_manager import TaskManager
+        from do_my_tasks.storage.database import get_session_factory
+
+        factory = get_session_factory()
+        manager = TaskManager(factory)
+        tasks = manager.list(
+            project_name=project_name, status="pending",
+        )
+        result = []
+        for t in tasks[:5]:
+            pri = t.priority.upper()
+            result.append(f"T-{t.id:04d} [{pri}] {t.title}")
+        return result
+    except Exception:
+        return []
+
+
 @app.callback(invoke_without_command=True)
 def sessions(
     ctx: typer.Context,
@@ -376,3 +488,182 @@ def live(
 
     console.print(table)
     console.print(f"\n[dim]Total: {len(processes)} sessions[/dim]")
+
+
+@app.command()
+def watch(
+    interval: int = typer.Option(
+        10, "--interval", "-i",
+        help="Polling interval in seconds.",
+    ),
+    idle_threshold: int = typer.Option(
+        30, "--idle", help="Seconds of inactivity before notifying.",
+    ),
+    notify: bool = typer.Option(
+        True, "--notify/--no-notify", help="Send OS notifications.",
+    ),
+    project: str | None = typer.Option(
+        None, "--project", "-p",
+        help="Only watch sessions for this project.",
+    ),
+):
+    """Watch sessions and notify with next tasks when idle.
+
+    Monitors active Claude Code sessions. When a session finishes
+    working (assistant done, no new activity), sends a notification
+    with pending tasks so you can assign the next one.
+    """
+    console.print(
+        Panel(
+            f"[bold]Watching sessions[/bold] "
+            f"(poll: {interval}s, idle: {idle_threshold}s)\n"
+            f"Press [bold]Ctrl+C[/bold] to stop.",
+            title="dmt sessions watch",
+            border_style="blue",
+        )
+    )
+
+    # Track state per log file: {path: {size, last_ts, notified}}
+    tracked: dict[str, dict] = {}
+    # Track which PIDs we've resolved cwd for
+    pid_cwd_cache: dict[str, str] = {}
+
+    try:
+        while True:
+            processes = _find_claude_processes()
+
+            for proc in processes:
+                pid = proc["pid"]
+
+                # Cache cwd lookups (expensive lsof call)
+                if pid not in pid_cwd_cache:
+                    cwd = _get_cwd(pid)
+                    if cwd:
+                        pid_cwd_cache[pid] = cwd
+
+                cwd = pid_cwd_cache.get(pid)
+                if not cwd:
+                    continue
+
+                proj_name = Path(cwd).name
+                if project and proj_name != project:
+                    continue
+
+                log_path, _ = _find_log_file(cwd)
+                if not log_path:
+                    continue
+
+                log_key = str(log_path)
+                state = _get_session_state(log_path)
+                prev = tracked.get(log_key)
+
+                now = time.time()
+
+                if prev is None:
+                    # First observation
+                    tracked[log_key] = {
+                        "size": state["file_size"],
+                        "last_change": now,
+                        "notified": False,
+                        "project": proj_name,
+                        "pid": pid,
+                        "last_user_msg": state[
+                            "last_user_msg"
+                        ],
+                        "tools": state["tools"],
+                    }
+                    continue
+
+                # Check if file changed
+                if state["file_size"] != prev["size"]:
+                    prev["size"] = state["file_size"]
+                    prev["last_change"] = now
+                    prev["notified"] = False
+                    prev["last_user_msg"] = state[
+                        "last_user_msg"
+                    ]
+                    prev["tools"] = state["tools"]
+                    continue
+
+                # File unchanged - check if idle long enough
+                idle_secs = now - prev["last_change"]
+                is_idle = (
+                    idle_secs >= idle_threshold
+                    and state["last_type"] == "assistant"
+                )
+
+                if is_idle and not prev["notified"]:
+                    prev["notified"] = True
+                    _handle_idle_session(
+                        proj_name, pid, prev, state,
+                        notify,
+                    )
+
+            # Clean up dead PIDs from cache
+            live_pids = {p["pid"] for p in processes}
+            dead = [
+                p for p in pid_cwd_cache
+                if p not in live_pids
+            ]
+            for p in dead:
+                del pid_cwd_cache[p]
+
+            time.sleep(interval)
+
+    except KeyboardInterrupt:
+        console.print("\n[dim]Watch stopped.[/dim]")
+
+
+def _handle_idle_session(
+    project: str,
+    pid: str,
+    prev: dict,
+    state: dict,
+    send_notify: bool,
+) -> None:
+    """Handle a session that has become idle."""
+    now_str = datetime.now().strftime("%H:%M:%S")
+
+    # What did it just finish?
+    user_msg = prev.get("last_user_msg", "")
+    if user_msg:
+        user_msg = _truncate_display(user_msg, 40)
+    tools = ", ".join(prev.get("tools", []))
+    done_text = f'"{user_msg}"' if user_msg else "(unknown)"
+    if tools:
+        done_text += f" → {tools}"
+
+    # Get next tasks
+    next_tasks = _get_next_tasks(project)
+
+    # Build console output
+    console.print()
+    console.print(
+        Panel(
+            f"[bold yellow]Session idle[/bold yellow] — "
+            f"[cyan]{project}[/cyan] (PID {pid})\n"
+            f"[dim]Completed:[/dim] {done_text}\n"
+            + (
+                "\n".join(
+                    f"  {'→' if i == 0 else ' '} {t}"
+                    for i, t in enumerate(next_tasks)
+                )
+                if next_tasks
+                else "[dim]No pending tasks.[/dim]"
+            ),
+            title=f"[bold]{now_str}[/bold]",
+            border_style="yellow",
+        )
+    )
+
+    # OS notification
+    if send_notify:
+        notif_msg = (
+            f"Done: {user_msg or 'task'}"
+        )
+        if next_tasks:
+            # Show first task in notification
+            notif_msg += f"\\nNext: {next_tasks[0]}"
+        _send_notification(
+            f"DMT — {project}", notif_msg,
+        )
