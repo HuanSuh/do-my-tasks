@@ -360,12 +360,14 @@ def _extract_user_text(content) -> str | None:
     Handles both plain string content and tool_result lists
     (Tab-amended permission responses contain user text after
     'To tell you how to proceed, the user said:' prefix).
-    """
-    if isinstance(content, str):
-        text = content.strip()
-        return text if text else None
 
-    if isinstance(content, list):
+    Returns the first non-empty line, stripped of whitespace.
+    """
+    raw: str | None = None
+
+    if isinstance(content, str):
+        raw = content
+    elif isinstance(content, list):
         for item in content:
             if not isinstance(item, dict):
                 continue
@@ -373,9 +375,17 @@ def _extract_user_text(content) -> str | None:
                 continue
             rc = item.get("content", "")
             if isinstance(rc, str) and _AMEND_PREFIX in rc:
-                amended = rc.split(_AMEND_PREFIX, 1)[1].strip()
-                if amended:
-                    return amended
+                raw = rc.split(_AMEND_PREFIX, 1)[1]
+                break
+
+    if not raw:
+        return None
+
+    # Take the first non-empty line
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
     return None
 
 
