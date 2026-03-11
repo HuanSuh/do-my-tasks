@@ -623,16 +623,19 @@ def _get_session_state(log_path: Path) -> dict:
         if msg_type == "user":
             if entry.get("isMeta"):
                 continue
-            state["last_type"] = "user"
             message = entry.get("message", {})
             content = message.get("content", "")
             user_text = _extract_user_text(content)
             if user_text:
+                # Real user input — mark as "user" turn
+                state["last_type"] = "user"
                 last_user_msg = user_text.split("\n")[0]
                 tools_after_user = []
                 files_modified = []
                 commands_run = []
                 last_stop_reason = None
+            # Tool approvals (empty content / tool_result without text)
+            # don't change last_type — keep previous state
         elif msg_type == "assistant":
             state["last_type"] = "assistant"
             message = entry.get("message", {})
