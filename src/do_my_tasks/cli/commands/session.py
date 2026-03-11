@@ -848,3 +848,193 @@ def _handle_permission_session(
             f"{emoji} DMT — {project}",
             f"권한 필요: {pending_tool} 승인 대기 중",
         )
+
+
+def _format_idle_duration(seconds: float) -> str:
+    """Format seconds into a human-readable idle duration."""
+    minutes = int(seconds / 60)
+    if minutes < 1:
+        return "< 1min"
+    if minutes < 60:
+        return f"{minutes}min"
+    hours = minutes // 60
+    mins = minutes % 60
+    if hours < 24:
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+    days = hours // 24
+    return f"{days}d {hours % 24}h"
+
+
+@app.command()
+def clean(
+    idle_minutes: int = typer.Option(
+        60, "--idle", "-i",
+        help="Kill sessions idle longer than N minutes.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Skip confirmation prompt.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n",
+        help="Show what would be killed without doing it.",
+    ),
+):
+    """Find and kill idle Claude Code sessions.
+
+    Scans running sessions, checks log activity, and terminates
+    those idle beyond the threshold. Shows session details before
+    killing so you can review.
+    """
+    processes = _find_claude_processes()
+    if not processes:
+        console.print("[yellow]No running Claude Code sessions found.[/yellow]")
+        raise typer.Exit()
+
+    threshold = idle_minutes * 60
+    now = time.time()
+    idle_sessions: list[dict] = []
+
+    for proc in processes:
+        cwd = _get_cwd(proc["pid"])
+        if not cwd:
+            continue
+
+        project = Path(cwd).name
+        log_path, _ = _find_log_file(cwd) if cwd else (None, None)
+
+        if not log_path:
+            continue
+
+        state = _get_session_state(log_path)
+
+        # Calculate idle time from file mtime
+        try:
+            mtime = log_path.stat().st_mtime
+            idle_secs = now - mtime
+        except OSError:
+            continue
+
+        if idle_secs >= threshold and state["last_type"] == "assistant":
+            last_msg = state.get("last_user_msg", "")
+            if last_msg:
+                last_msg = _truncate_display(
+                    last_msg.split("\n")[0], 35,
+                )
+            idle_sessions.append({
+                "pid": proc["pid"],
+                "project": project,
+                "started": proc["started"],
+                "idle_secs": idle_secs,
+                "last_msg": last_msg,
+                "status": state.get("status", "?"),
+            })
+
+    if not idle_sessions:
+        console.print(
+            f"[green]No sessions idle for more than "
+            f"{idle_minutes} minutes.[/green]"
+        )
+        raise typer.Exit()
+
+    # Show idle sessions
+    table = Table(
+        title=f"Idle Sessions (> {idle_minutes}min)",
+        show_lines=True,
+    )
+    table.add_column("PID", style="cyan", width=7)
+    table.add_column("Project", style="bold")
+    table.add_column("Idle", style="red")
+    table.add_column("Status")
+    table.add_column("Last Message", style="dim")
+
+    for s in sorted(
+        idle_sessions,
+        key=lambda x: x["idle_secs"],
+        reverse=True,
+    ):
+        emoji = STATUS_EMOJI.get(s["status"], "?")
+        table.add_row(
+            s["pid"],
+            s["project"],
+            _format_idle_duration(s["idle_secs"]),
+            emoji,
+            s["last_msg"] or "(unknown)",
+        )
+
+    console.print(table)
+    console.print(
+        f"\n[bold]{len(idle_sessions)}[/bold] idle session(s) found."
+    )
+
+    if dry_run:
+        console.print("[dim]Dry run — no sessions killed.[/dim]")
+        raise typer.Exit()
+
+    # Kill sessions one by one
+    sorted_sessions = sorted(
+        idle_sessions,
+        key=lambda x: x["idle_secs"],
+        reverse=True,
+    )
+    killed = 0
+    skipped = 0
+    kill_all = force
+
+    for s in sorted_sessions:
+        pid = s["pid"]
+        emoji = STATUS_EMOJI.get(s["status"], "?")
+        idle_str = _format_idle_duration(s["idle_secs"])
+        msg = s["last_msg"] or "(unknown)"
+
+        console.print()
+        console.print(
+            f"  {emoji} [cyan]{s['project']}[/cyan] "
+            f"(PID [bold]{pid}[/bold], idle [red]{idle_str}[/red])"
+        )
+        console.print(f"  [dim]Last: {msg}[/dim]")
+
+        if kill_all:
+            do_kill = True
+        else:
+            choice = _prompt_kill(pid)
+            if choice == "all":
+                kill_all = True
+                do_kill = True
+            else:
+                do_kill = choice == "yes"
+
+        if not do_kill:
+            skipped += 1
+            console.print("  [dim]Skipped.[/dim]")
+            continue
+
+        try:
+            subprocess.run(
+                ["kill", pid],
+                capture_output=True,
+                timeout=5,
+            )
+            console.print("  [red]Killed.[/red]")
+            killed += 1
+        except (OSError, subprocess.TimeoutExpired):
+            console.print("  [yellow]Failed to kill.[/yellow]")
+
+    console.print(
+        f"\n[green]Done.[/green] "
+        f"Killed: {killed}, Skipped: {skipped}"
+    )
+
+
+def _prompt_kill(pid: str) -> str:
+    """Prompt user: y/N/a. Returns 'yes', 'no', or 'all'."""
+    while True:
+        choice = console.input(
+            f"  Kill PID {pid}? [dim](y/N/a=all)[/dim] ",
+        ).strip().lower()
+        if choice in ("y", "yes"):
+            return "yes"
+        if choice in ("a", "all"):
+            return "all"
+        # Default to no (empty, n, or anything else)
+        return "no"

@@ -24,7 +24,7 @@ DMT 명령어:
   summary   - 일일 리포트 생성
   plan      - 오늘의 TODO 계획
   tasks     - 태스크 관리 (list/add/complete/update/delete/rollover)
-  sessions  - 라이브 세션 조회 (live/--wide/--detail)
+  sessions  - 라이브 세션 조회 (live/watch/clean/--wide/--detail)
   config    - 프로젝트 설정 (discover/add/remove/show/list)
 ```
 
@@ -65,6 +65,11 @@ DMT 명령어:
 | `/dmt sessions --wide` | `poetry run dmt sessions --wide` |
 | `/dmt sessions --detail` | `poetry run dmt sessions --detail` |
 | `/dmt sessions -d` | `poetry run dmt sessions -d` |
+| `/dmt sessions watch` | `poetry run dmt sessions watch` |
+| `/dmt sessions watch --idle 15 --no-notify` | `poetry run dmt sessions watch --idle 15 --no-notify` |
+| `/dmt sessions clean` | `poetry run dmt sessions clean` |
+| `/dmt sessions clean --idle 30 --dry-run` | `poetry run dmt sessions clean --idle 30 --dry-run` |
+| `/dmt sessions clean --force` | `poetry run dmt sessions clean --force` |
 | `/dmt config discover` | `poetry run dmt config discover` |
 | `/dmt config add myproject /path/to/project` | `poetry run dmt config add myproject /path/to/project` |
 | `/dmt config remove myproject` | `poetry run dmt config remove myproject` |

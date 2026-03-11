@@ -135,9 +135,25 @@ dmt sessions watch --no-notify            # OS 알림 끄기
 ```
 
 idle 감지 시 표시 내용:
-- 완료된 작업 (마지막 유저 메시지 + 사용 도구)
-- 다음 pending 태스크 목록 (해당 프로젝트 우선)
+- ✅ 완료 — 요청 내용, 수정 파일, 실행 명령어 요약 + 다음 태스크
+- ⏸️ 권한 필요 — 승인 대기 중인 도구 표시
 - macOS 알림 (Glass 사운드)
+
+### Clean (유휴 세션 정리)
+
+오래된 유휴 세션을 찾아서 하나씩 확인 후 종료:
+
+```bash
+dmt sessions clean                # 60분 이상 idle 세션 정리 (y/N/a 선택)
+dmt sessions clean --idle 30      # 30분 기준
+dmt sessions clean --dry-run      # 종료 없이 대상만 확인
+dmt sessions clean --force        # 확인 없이 전부 종료
+```
+
+각 세션별로 프로젝트, idle 시간, 마지막 메시지를 보여주고:
+- **y** — 이 세션 kill
+- **N** (기본) — skip
+- **a** — 나머지 전부 kill
 
 ## Task Management
 
