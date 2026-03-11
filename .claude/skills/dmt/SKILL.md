@@ -70,6 +70,8 @@ DMT 명령어:
 | `/dmt sessions clean` | `poetry run dmt sessions clean` |
 | `/dmt sessions clean --idle 30 --dry-run` | `poetry run dmt sessions clean --idle 30 --dry-run` |
 | `/dmt sessions clean --force` | `poetry run dmt sessions clean --force` |
+| `/dmt sessions clean 12345` | `poetry run dmt sessions clean 12345` |
+| `/dmt sessions clean 12345 67890` | `poetry run dmt sessions clean 12345 67890` |
 | `/dmt config discover` | `poetry run dmt config discover` |
 | `/dmt config add myproject /path/to/project` | `poetry run dmt config add myproject /path/to/project` |
 | `/dmt config remove myproject` | `poetry run dmt config remove myproject` |

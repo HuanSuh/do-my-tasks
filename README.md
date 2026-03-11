@@ -148,6 +148,8 @@ dmt sessions clean                # 60분 이상 idle 세션 정리 (y/N/a 선�
 dmt sessions clean --idle 30      # 30분 기준
 dmt sessions clean --dry-run      # 종료 없이 대상만 확인
 dmt sessions clean --force        # 확인 없이 전부 종료
+dmt sessions clean 12345          # 특정 PID 직접 종료
+dmt sessions clean 12345 67890    # 여러 PID 한번에 종료
 ```
 
 각 세션별로 프로젝트, idle 시간, 마지막 메시지를 보여주고:

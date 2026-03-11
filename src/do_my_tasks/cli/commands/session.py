@@ -867,6 +867,10 @@ def _format_idle_duration(seconds: float) -> str:
 
 @app.command()
 def clean(
+    pids: list[str] = typer.Argument(
+        None,
+        help="Specific PID(s) to kill. If given, skips idle check.",
+    ),
     idle_minutes: int = typer.Option(
         60, "--idle", "-i",
         help="Kill sessions idle longer than N minutes.",
@@ -885,50 +889,91 @@ def clean(
     Scans running sessions, checks log activity, and terminates
     those idle beyond the threshold. Shows session details before
     killing so you can review.
+
+    You can also pass specific PID(s) to kill directly:
+
+        dmt sessions clean 12345 67890
     """
     processes = _find_claude_processes()
     if not processes:
         console.print("[yellow]No running Claude Code sessions found.[/yellow]")
         raise typer.Exit()
 
-    threshold = idle_minutes * 60
-    now = time.time()
-    idle_sessions: list[dict] = []
+    live_pids = {p["pid"] for p in processes}
 
-    for proc in processes:
-        cwd = _get_cwd(proc["pid"])
-        if not cwd:
-            continue
-
-        project = Path(cwd).name
-        log_path, _ = _find_log_file(cwd) if cwd else (None, None)
-
-        if not log_path:
-            continue
-
-        state = _get_session_state(log_path)
-
-        # Calculate idle time from file mtime
-        try:
-            mtime = log_path.stat().st_mtime
-            idle_secs = now - mtime
-        except OSError:
-            continue
-
-        if idle_secs >= threshold and state["last_type"] == "assistant":
+    # If specific PIDs given, target those directly
+    if pids:
+        target_sessions: list[dict] = []
+        for pid in pids:
+            if pid not in live_pids:
+                console.print(
+                    f"[yellow]PID {pid} is not a running "
+                    f"Claude Code session.[/yellow]"
+                )
+                continue
+            proc = next(p for p in processes if p["pid"] == pid)
+            cwd = _get_cwd(pid)
+            project = Path(cwd).name if cwd else "?"
+            log_path, _ = _find_log_file(cwd) if cwd else (None, None)
+            state = _get_session_state(log_path) if log_path else {}
             last_msg = state.get("last_user_msg", "")
             if last_msg:
-                last_msg = _truncate_display(
-                    last_msg.split("\n")[0], 35,
-                )
-            idle_sessions.append({
-                "pid": proc["pid"],
+                last_msg = _truncate_display(last_msg.split("\n")[0], 35)
+            try:
+                mtime = log_path.stat().st_mtime if log_path else 0
+                idle_secs = time.time() - mtime if mtime else 0
+            except OSError:
+                idle_secs = 0
+            target_sessions.append({
+                "pid": pid,
                 "project": project,
                 "started": proc["started"],
                 "idle_secs": idle_secs,
                 "last_msg": last_msg,
                 "status": state.get("status", "?"),
             })
+        if not target_sessions:
+            raise typer.Exit(1)
+        idle_sessions = target_sessions
+    else:
+        threshold = idle_minutes * 60
+        now = time.time()
+        idle_sessions: list[dict] = []
+
+        for proc in processes:
+            cwd = _get_cwd(proc["pid"])
+            if not cwd:
+                continue
+
+            project = Path(cwd).name
+            log_path, _ = _find_log_file(cwd) if cwd else (None, None)
+
+            if not log_path:
+                continue
+
+            state = _get_session_state(log_path)
+
+            # Calculate idle time from file mtime
+            try:
+                mtime = log_path.stat().st_mtime
+                idle_secs = now - mtime
+            except OSError:
+                continue
+
+            if idle_secs >= threshold and state["last_type"] == "assistant":
+                last_msg = state.get("last_user_msg", "")
+                if last_msg:
+                    last_msg = _truncate_display(
+                        last_msg.split("\n")[0], 35,
+                    )
+                idle_sessions.append({
+                    "pid": proc["pid"],
+                    "project": project,
+                    "started": proc["started"],
+                    "idle_secs": idle_secs,
+                    "last_msg": last_msg,
+                    "status": state.get("status", "?"),
+                })
 
     if not idle_sessions:
         console.print(
@@ -937,11 +982,13 @@ def clean(
         )
         raise typer.Exit()
 
-    # Show idle sessions
-    table = Table(
-        title=f"Idle Sessions (> {idle_minutes}min)",
-        show_lines=True,
+    # Show target sessions
+    title = (
+        f"Target Sessions (PID: {', '.join(pids)})"
+        if pids
+        else f"Idle Sessions (> {idle_minutes}min)"
     )
+    table = Table(title=title, show_lines=True)
     table.add_column("PID", style="cyan", width=7)
     table.add_column("Project", style="bold")
     table.add_column("Idle", style="red")
