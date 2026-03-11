@@ -351,6 +351,34 @@ def _get_last_log_timestamp(log_path: Path) -> datetime | None:
     return None
 
 
+_AMEND_PREFIX = "To tell you how to proceed, the user said:\n"
+
+
+def _extract_user_text(content) -> str | None:
+    """Extract user message text from JSONL user entry content.
+
+    Handles both plain string content and tool_result lists
+    (Tab-amended permission responses contain user text after
+    'To tell you how to proceed, the user said:' prefix).
+    """
+    if isinstance(content, str):
+        text = content.strip()
+        return text if text else None
+
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "tool_result":
+                continue
+            rc = item.get("content", "")
+            if isinstance(rc, str) and _AMEND_PREFIX in rc:
+                amended = rc.split(_AMEND_PREFIX, 1)[1].strip()
+                if amended:
+                    return amended
+    return None
+
+
 def _get_session_activity(log_path: Path) -> dict:
     """Extract last user message and recent tools from a JSONL log.
 
@@ -386,8 +414,9 @@ def _get_session_activity(log_path: Path) -> dict:
                 continue
             message = entry.get("message", {})
             content = message.get("content", "")
-            if isinstance(content, str) and content.strip():
-                last_user_msg = content.strip()
+            user_text = _extract_user_text(content)
+            if user_text:
+                last_user_msg = user_text
                 ts_str = entry.get("timestamp")
                 if ts_str:
                     try:
@@ -492,12 +521,13 @@ def _get_session_state(log_path: Path) -> dict:
             state["last_type"] = "user"
             message = entry.get("message", {})
             content = message.get("content", "")
-            if isinstance(content, str) and content.strip():
-                last_user_msg = content.strip().split("\n")[0]
-            tools_after_user = []
-            files_modified = []
-            commands_run = []
-            last_stop_reason = None
+            user_text = _extract_user_text(content)
+            if user_text:
+                last_user_msg = user_text.split("\n")[0]
+                tools_after_user = []
+                files_modified = []
+                commands_run = []
+                last_stop_reason = None
         elif msg_type == "assistant":
             state["last_type"] = "assistant"
             message = entry.get("message", {})
