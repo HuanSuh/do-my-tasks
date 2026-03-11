@@ -52,6 +52,16 @@ def _watch_log(message: str) -> None:
         _watch_log_file.flush()
 
 
+def _watch_log_error(context: str, exc: Exception) -> None:
+    """Log an error with traceback to the watch log."""
+    import traceback
+    tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    _watch_log(f"ERROR: {context}: {exc}")
+    for line in tb:
+        for sub in line.rstrip().split("\n"):
+            _watch_log(f"  {sub}")
+
+
 def _char_width(ch: str) -> int:
     """Return display width of a character (CJK = 2, others = 1)."""
     cp = ord(ch)
@@ -657,13 +667,14 @@ def watch(
     tracked: dict[str, dict] = {}
     # Track which PIDs we've resolved cwd for
     pid_cwd_cache: dict[str, str] = {}
+    last_heartbeat = time.time()
 
     try:
         while True:
             try:
                 processes = _find_claude_processes()
             except Exception as e:
-                _watch_log(f"ERROR: Failed to find processes: {e}")
+                _watch_log_error("Failed to find processes", e)
                 time.sleep(interval)
                 continue
 
@@ -733,7 +744,7 @@ def watch(
                         _watch_log(
                             f"Active: {proj_name} (PID {pid}) "
                             f"status={state.get('status', '?')} "
-                            f"msg=\"{state.get('last_user_msg', '')[:50]}\""
+                            f"msg=\"{(state.get('last_user_msg') or '')[:50]}\""
                         )
                         continue
 
@@ -750,7 +761,7 @@ def watch(
                         _watch_log(
                             f"Idle: {proj_name} (PID {pid}) "
                             f"idle={idle_dur} "
-                            f"msg=\"{prev.get('last_user_msg', '')[:50]}\""
+                            f"msg=\"{(prev.get('last_user_msg') or '')[:50]}\""
                         )
                         _handle_idle_session(
                             proj_name, pid, prev, state,
@@ -775,8 +786,8 @@ def watch(
                         )
 
                 except Exception as e:
-                    _watch_log(
-                        f"ERROR: PID {pid} processing failed: {e}"
+                    _watch_log_error(
+                        f"PID {pid} processing failed", e
                     )
 
             # Clean up dead PIDs from cache
@@ -788,13 +799,39 @@ def watch(
             for p in dead:
                 del pid_cwd_cache[p]
 
+            # Heartbeat every 60 seconds
+            if time.time() - last_heartbeat >= 60:
+                last_heartbeat = time.time()
+                counts: dict[str, int] = {}
+                for t in tracked.values():
+                    # Determine status from tracked state
+                    idle = time.time() - t["last_change"]
+                    if idle < idle_threshold:
+                        s = "working"
+                    elif t.get("notified"):
+                        s = "idle"
+                    elif t.get("perm_notified"):
+                        s = "permission"
+                    else:
+                        s = "idle"
+                    counts[s] = counts.get(s, 0) + 1
+                parts = [
+                    f"{counts.get(s, 0)} {s}"
+                    for s in ("working", "permission", "idle")
+                    if counts.get(s, 0) > 0
+                ]
+                _watch_log(
+                    f"Heartbeat: {len(tracked)} sessions "
+                    f"({', '.join(parts) or 'none tracked'})"
+                )
+
             time.sleep(interval)
 
     except KeyboardInterrupt:
         _watch_log("Watch stopped by user (Ctrl+C)")
         console.print("\n[dim]Watch stopped.[/dim]")
     except Exception as e:
-        _watch_log(f"ERROR: Watch crashed: {e}")
+        _watch_log_error("Watch crashed", e)
         console.print(f"\n[red]Watch error: {e}[/red]")
         raise
     finally:
@@ -841,7 +878,7 @@ def _handle_idle_session(
     emoji = STATUS_EMOJI.get(state.get("status", "done"), "✅")
 
     # What did it just finish?
-    user_msg = prev.get("last_user_msg", "")
+    user_msg = prev.get("last_user_msg") or ""
     if user_msg:
         user_msg = _truncate_display(user_msg, 40)
 
@@ -996,7 +1033,7 @@ def clean(
             project = Path(cwd).name if cwd else "?"
             log_path, _ = _find_log_file(cwd) if cwd else (None, None)
             state = _get_session_state(log_path) if log_path else {}
-            last_msg = state.get("last_user_msg", "")
+            last_msg = state.get("last_user_msg") or ""
             if last_msg:
                 last_msg = _truncate_display(last_msg.split("\n")[0], 35)
             try:
@@ -1041,7 +1078,7 @@ def clean(
                 continue
 
             if idle_secs >= threshold and state["last_type"] == "assistant":
-                last_msg = state.get("last_user_msg", "")
+                last_msg = state.get("last_user_msg") or ""
                 if last_msg:
                     last_msg = _truncate_display(
                         last_msg.split("\n")[0], 35,
