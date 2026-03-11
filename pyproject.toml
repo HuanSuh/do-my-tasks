@@ -1,0 +1,50 @@
+[tool.poetry]
+name = "do-my-tasks"
+version = "0.1.0"
+description = "Intelligent daily activity tracker & task manager for Claude Code power users"
+authors = ["huansuh"]
+readme = "README.md"
+packages = [{include = "do_my_tasks", from = "src"}]
+
+[tool.poetry.scripts]
+dmt = "do_my_tasks.cli.main:app"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+typer = {extras = ["all"], version = "^0.15.0"}
+rich = "^13.0"
+sqlalchemy = "^2.0"
+pydantic = "^2.0"
+pydantic-settings = "^2.0"
+gitpython = "^3.1"
+jinja2 = "^3.1"
+tomli-w = "^1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-cov = "^6.0"
+ruff = "^0.9"
+mypy = "^1.0"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
