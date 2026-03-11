@@ -139,6 +139,9 @@ idle 감지 시 표시 내용:
 - ⏸️ 권한 필요 — 승인 대기 중인 도구 표시
 - macOS 알림 (Glass 사운드)
 
+Watch 로그는 `~/.dmt/logs/dmt_watch_log_{timestamp}.log`에 자동 저장됩니다.
+5일 이상 된 로그는 watch 시작 시 자동 삭제됩니다.
+
 ### Clean (유휴 세션 정리)
 
 오래된 유휴 세션을 찾아서 하나씩 확인 후 종료:
@@ -190,6 +193,7 @@ dmt tasks rollover --from-date 2026-03-10 --to-date 2026-03-11
 
 ```bash
 dmt --verbose collect    # 디버그 로그 출력
+dmt --json tasks list    # JSON 형태로 출력 (sessions watch, config discover 제외)
 dmt --version            # 버전 확인
 dmt --help               # 도움말
 ```
@@ -220,6 +224,7 @@ dmt tasks add --help
 - **DB**: `~/.config/do_my_tasks/data.db` (SQLite)
 - **Config**: `~/.config/do_my_tasks/config.toml`
 - **Reports**: `~/.config/do_my_tasks/reports/YYYY-MM-DD.md`
+- **Watch Logs**: `~/.dmt/logs/dmt_watch_log_{timestamp}.log` (5일 보관)
 
 환경변수 `DMT_DB_PATH`로 DB 경로 변경 가능.
 

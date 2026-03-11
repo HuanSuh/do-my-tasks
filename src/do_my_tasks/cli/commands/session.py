@@ -18,6 +18,39 @@ from do_my_tasks.cli.output import is_json_mode
 app = typer.Typer()
 console = Console()
 
+# Watch log directory and file handle
+_watch_log_dir = Path.home() / ".dmt" / "logs"
+_watch_log_file = None
+
+
+def _init_watch_log() -> Path:
+    """Create watch log file and clean up old logs (5+ days)."""
+    global _watch_log_file
+    _watch_log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Clean up logs older than 5 days
+    cutoff = time.time() - 5 * 86400
+    for old_log in _watch_log_dir.glob("dmt_watch_log_*.log"):
+        try:
+            if old_log.stat().st_mtime < cutoff:
+                old_log.unlink()
+        except OSError:
+            pass
+
+    # Create new log file
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = _watch_log_dir / f"dmt_watch_log_{ts}.log"
+    _watch_log_file = open(log_path, "a", encoding="utf-8")
+    return log_path
+
+
+def _watch_log(message: str) -> None:
+    """Append a timestamped message to the watch log."""
+    if _watch_log_file and not _watch_log_file.closed:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _watch_log_file.write(f"[{ts}] {message}\n")
+        _watch_log_file.flush()
+
 
 def _char_width(ch: str) -> int:
     """Return display width of a character (CJK = 2, others = 1)."""
@@ -602,15 +635,23 @@ def watch(
     working (assistant done, no new activity), sends a notification
     with pending tasks so you can assign the next one.
     """
+    # Init watch log
+    log_path = _init_watch_log()
+
     console.print(
         Panel(
             f"[bold]Watching sessions[/bold] "
             f"(poll: {interval}s, idle: {idle_threshold}s)\n"
+            f"Log: {log_path}\n"
             f"Press [bold]Ctrl+C[/bold] to stop.",
             title="dmt sessions watch",
             border_style="blue",
         )
     )
+
+    _watch_log(f"Watch started (poll: {interval}s, idle: {idle_threshold}s)")
+    if project:
+        _watch_log(f"Filtering project: {project}")
 
     # Track state per log file: {path: {size, last_ts, notified}}
     tracked: dict[str, dict] = {}
@@ -661,6 +702,10 @@ def watch(
                         ],
                         "tools": state["tools"],
                     }
+                    _watch_log(
+                        f"Tracking: {proj_name} (PID {pid}) "
+                        f"status={state.get('status', '?')}"
+                    )
                     continue
 
                 # Check if file changed
@@ -679,6 +724,11 @@ def watch(
                     prev["commands_run"] = state[
                         "commands_run"
                     ]
+                    _watch_log(
+                        f"Active: {proj_name} (PID {pid}) "
+                        f"status={state.get('status', '?')} "
+                        f"msg=\"{state.get('last_user_msg', '')[:50]}\""
+                    )
                     continue
 
                 # File unchanged - check if idle long enough
@@ -690,6 +740,12 @@ def watch(
 
                 if is_idle and not prev["notified"]:
                     prev["notified"] = True
+                    idle_dur = _format_idle_duration(idle_secs)
+                    _watch_log(
+                        f"Idle: {proj_name} (PID {pid}) "
+                        f"idle={idle_dur} "
+                        f"msg=\"{prev.get('last_user_msg', '')[:50]}\""
+                    )
                     _handle_idle_session(
                         proj_name, pid, prev, state,
                         notify,
@@ -703,6 +759,11 @@ def watch(
                 )
                 if needs_perm:
                     prev["perm_notified"] = True
+                    pending_tool = state.get("tools", ["?"])[-1]
+                    _watch_log(
+                        f"Permission: {proj_name} (PID {pid}) "
+                        f"tool={pending_tool}"
+                    )
                     _handle_permission_session(
                         proj_name, pid, state, notify,
                     )
@@ -719,7 +780,11 @@ def watch(
             time.sleep(interval)
 
     except KeyboardInterrupt:
+        _watch_log("Watch stopped by user (Ctrl+C)")
         console.print("\n[dim]Watch stopped.[/dim]")
+    finally:
+        if _watch_log_file and not _watch_log_file.closed:
+            _watch_log_file.close()
 
 
 STATUS_EMOJI = {
