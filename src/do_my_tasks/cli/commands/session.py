@@ -153,6 +153,17 @@ def _get_cwd(pid: str) -> str | None:
     return None
 
 
+def _get_project_name(cwd: str) -> str:
+    """Extract project name from cwd, handling worktree paths.
+
+    Normal:    /Users/me/workspace/myapp          -> myapp
+    Worktree:  /Users/me/workspace/myapp/.claude/worktrees/feat-x -> myapp
+    """
+    if "/.claude/worktrees/" in cwd:
+        return Path(cwd.split("/.claude/worktrees/")[0]).name
+    return Path(cwd).name
+
+
 def _get_project_log_dirs(cwd: str) -> list[Path]:
     """Get all log directories for a project cwd.
 
@@ -772,7 +783,7 @@ def live(
         reverse=True,
     ):
         cwd = pid_cwds.get(proc["pid"])
-        project = Path(cwd).name if cwd else "?"
+        project = _get_project_name(cwd) if cwd else "?"
 
         log_path, log_mtime = pid_logs.get(
             proc["pid"], (None, None),
@@ -945,7 +956,7 @@ def watch(
                     if not cwd:
                         continue
 
-                    proj_name = Path(cwd).name
+                    proj_name = _get_project_name(cwd)
                     if project and proj_name != project:
                         continue
 
@@ -1281,7 +1292,7 @@ def clean(
 
     def _build_session_info(pid: str, proc: dict) -> dict:
         cwd = pid_cwds.get(pid)
-        project = Path(cwd).name if cwd else "?"
+        project = _get_project_name(cwd) if cwd else "?"
         log_path, _ = pid_logs.get(pid, (None, None))
         state = _get_session_state(log_path) if log_path else {}
         last_msg = state.get("last_user_msg") or ""
