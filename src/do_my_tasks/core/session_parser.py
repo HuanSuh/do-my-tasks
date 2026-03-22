@@ -63,6 +63,8 @@ def parse_session_file(file_path: Path) -> ClaudeSession | None:
                 if timestamp_str:
                     try:
                         ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                        # Convert to local naive datetime for DB storage
+                        ts = ts.astimezone().replace(tzinfo=None)
                         if first_timestamp is None or ts < first_timestamp:
                             first_timestamp = ts
                         if last_timestamp is None or ts > last_timestamp:

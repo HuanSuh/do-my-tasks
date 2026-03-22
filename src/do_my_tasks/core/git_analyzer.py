@@ -115,10 +115,11 @@ def _parse_commit(
             # stats can fail on some commits (e.g., initial commit)
             pass
 
-        # Convert timestamp to UTC
+        # Convert timestamp to local naive datetime for DB storage
         authored_dt = commit.authored_datetime
         if authored_dt.tzinfo is None:
             authored_dt = authored_dt.replace(tzinfo=UTC)
+        authored_dt = authored_dt.astimezone().replace(tzinfo=None)
 
         return GitCommitData(
             sha=commit.hexsha,
