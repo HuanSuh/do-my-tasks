@@ -50,14 +50,16 @@ class ProjectRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def upsert(self, name: str, path: str, main_branch: str = "main") -> ProjectRow:
+    def upsert(self, name: str, path: str, main_branch: str = "main", slug: str | None = None) -> ProjectRow:
         existing = self.session.query(ProjectRow).filter_by(name=name).first()
         if existing:
             existing.path = path
             existing.main_branch = main_branch
             existing.is_active = True
+            if slug is not None:
+                existing.slug = slug or None
             return existing
-        row = ProjectRow(name=name, path=path, main_branch=main_branch)
+        row = ProjectRow(name=name, path=path, main_branch=main_branch, slug=slug or None)
         self.session.add(row)
         return row
 

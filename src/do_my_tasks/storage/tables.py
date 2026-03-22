@@ -25,6 +25,7 @@ class ProjectRow(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    slug: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     path: Mapped[str] = mapped_column(String(1024), nullable=False)
     main_branch: Mapped[str] = mapped_column(String(255), default="main")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
