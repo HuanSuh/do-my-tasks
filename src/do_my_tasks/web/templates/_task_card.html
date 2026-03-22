@@ -1,0 +1,50 @@
+<div class="bg-white rounded-xl border border-slate-200 px-4 py-3 shadow-sm hover:shadow-md transition-shadow">
+  <div class="flex items-start gap-3">
+    <!-- Complete checkbox -->
+    <form method="post" action="/tasks/{{ t.id }}/complete" class="mt-0.5 shrink-0">
+      <input type="hidden" name="date" value="{{ date }}">
+      <button type="submit"
+              class="w-4 h-4 rounded border-2 border-slate-300 hover:border-emerald-500 transition-colors flex items-center justify-center group">
+        <svg class="w-2.5 h-2.5 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+        </svg>
+      </button>
+    </form>
+
+    <div class="flex-1 min-w-0">
+      <div class="flex items-start justify-between gap-2">
+        <div class="font-medium text-sm text-slate-800 leading-snug">{{ t.title }}</div>
+        <span class="shrink-0 text-xs px-2 py-0.5 rounded-full font-medium priority-{{ t.priority }}">
+          {{ t.priority }}
+        </span>
+      </div>
+      {% if t.description %}
+      <div class="text-xs text-slate-500 mt-1 leading-relaxed">{{ t.description[:120] }}{% if t.description | length > 120 %}…{% endif %}</div>
+      {% endif %}
+      <div class="flex items-center gap-2 mt-2">
+        <span class="mono text-xs text-slate-400">T-{{ '%04d' % t.id }}</span>
+        <span class="text-xs text-slate-400">·</span>
+        <span class="text-xs text-slate-400">{{ t.project_name }}</span>
+        {% if t.rollover_count > 0 %}
+        <span class="text-xs text-amber-500">· ↻ {{ t.rollover_count }}×</span>
+        {% endif %}
+        {% if t.requires_review %}
+        <span class="text-xs text-red-500 font-medium">· review needed</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Delete -->
+    <form method="post" action="/tasks/{{ t.id }}/delete" class="shrink-0">
+      <input type="hidden" name="date" value="{{ date }}">
+      <button type="submit"
+              onclick="return confirm('Delete this task?')"
+              class="text-slate-300 hover:text-red-400 transition-colors mt-0.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+        </svg>
+      </button>
+    </form>
+  </div>
+</div>

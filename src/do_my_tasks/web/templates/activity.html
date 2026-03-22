@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Activity{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Activity</h1>
+      <p class="text-sm text-slate-500 mt-0.5">{{ commits | length }} commit{% if commits | length != 1 %}s{% endif %} across {{ by_project | length }} project{% if by_project | length != 1 %}s{% endif %}</p>
+    </div>
+    <!-- Date nav -->
+    <div class="flex items-center gap-1 bg-white rounded-xl border border-slate-200 px-1 py-1 shadow-sm">
+      <a href="/activity?date={{ prev_date }}" class="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </a>
+      <span class="px-2 py-1 text-sm font-medium mono text-slate-700">
+        {% if is_today %}Today{% else %}{{ date }}{% endif %}
+      </span>
+      {% if not is_today %}
+      <a href="/activity?date={{ next_date }}" class="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </a>
+      {% else %}
+      <span class="p-2 text-slate-300">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if by_project %}
+    {% for project_name, project_commits in by_project.items() %}
+    <div class="mb-6">
+      <!-- Project header -->
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 bg-slate-800 rounded-md flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+          </div>
+          <h2 class="font-semibold text-slate-800">{{ project_name }}</h2>
+          <span class="text-xs text-slate-400">{{ project_commits | length }} commit{% if project_commits | length != 1 %}s{% endif %}</span>
+        </div>
+        <div class="text-xs text-slate-400">
+          +{{ project_commits | sum(attribute='additions') }} / -{{ project_commits | sum(attribute='deletions') }}
+        </div>
+      </div>
+
+      <!-- Commit list -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="divide-y divide-slate-50">
+          {% for c in project_commits %}
+          <div class="px-5 py-4 hover:bg-slate-50 transition-colors">
+            <div class="flex items-start gap-3">
+              <!-- Type badge -->
+              <span class="shrink-0 mt-0.5 text-xs px-2 py-0.5 rounded-full font-medium commit-{{ c.commit_type }}">
+                {{ c.commit_type }}
+              </span>
+
+              <div class="flex-1 min-w-0">
+                <!-- Commit message -->
+                <div class="font-medium text-slate-800 text-sm leading-snug">
+                  {{ c.message.split('\n')[0] }}
+                </div>
+
+                <!-- Multi-line body if present -->
+                {% set body_lines = c.message.split('\n')[1:] %}
+                {% set body = body_lines | join('\n') | trim %}
+                {% if body %}
+                <div class="mt-1.5 text-xs text-slate-500 leading-relaxed">{{ body[:200] }}{% if body | length > 200 %}…{% endif %}</div>
+                {% endif %}
+
+                <!-- Meta -->
+                <div class="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                  <span class="mono">{{ c.sha[:7] }}</span>
+                  <span>·</span>
+                  <span>{{ c.author }}</span>
+                  {% if c.timestamp %}
+                  <span>·</span>
+                  <span>{{ c.timestamp | as_local('%H:%M') }}</span>
+                  {% endif %}
+                  {% if c.branch %}
+                  <span>·</span>
+                  <span class="mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{{ c.branch }}</span>
+                  {% endif %}
+                  {% if c.is_ai_assisted %}
+                  <span class="bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">🤖 AI</span>
+                  {% endif %}
+                </div>
+
+                <!-- Changed files -->
+                {% if c.files_changed %}
+                <div class="mt-2 flex flex-wrap gap-1">
+                  {% set files = c.files_changed if c.files_changed is iterable else [] %}
+                  {% for f in files[:6] %}
+                  <span class="mono text-xs bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-slate-500">
+                    {{ f.split('/')[-1] }}
+                  </span>
+                  {% endfor %}
+                  {% if files | length > 6 %}
+                  <span class="text-xs text-slate-400">+{{ files | length - 6 }} more</span>
+                  {% endif %}
+                </div>
+                {% endif %}
+              </div>
+
+              <!-- Stats -->
+              <div class="shrink-0 text-right text-xs">
+                <div class="text-emerald-600 font-medium">+{{ c.additions }}</div>
+                <div class="text-red-500">-{{ c.deletions }}</div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+  {% else %}
+  <div class="bg-white rounded-2xl border border-dashed border-slate-200 py-16 text-center">
+    <div class="text-slate-300 text-5xl mb-4">📝</div>
+    <div class="text-slate-500 font-medium">No commits recorded for {{ date }}</div>
+    <div class="text-xs text-slate-400 mt-1.5">Run <code class="mono bg-slate-100 px-1 rounded">dmt collect</code> to sync git history</div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

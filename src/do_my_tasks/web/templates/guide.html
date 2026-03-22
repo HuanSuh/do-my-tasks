@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Guide{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 max-w-4xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-slate-900">Guide</h1>
+    <p class="text-sm text-slate-500 mt-0.5">DMT CLI 사용법 및 웹 대시보드 안내</p>
+  </div>
+
+  <div class="space-y-8">
+
+    <!-- Quick start -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-emerald-500 rounded-md flex items-center justify-center text-white text-xs font-bold">1</span>
+        빠른 시작
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="divide-y divide-slate-100">
+          <div class="px-5 py-4">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+              <code class="mono text-sm bg-slate-900 text-emerald-400 px-3 py-1.5 rounded-lg shrink-0">dmt web</code>
+              <span class="text-sm text-slate-600">웹 대시보드 실행 (기본 포트 7317)</span>
+            </div>
+          </div>
+          <div class="px-5 py-4">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+              <code class="mono text-sm bg-slate-900 text-emerald-400 px-3 py-1.5 rounded-lg shrink-0">dmt collect</code>
+              <span class="text-sm text-slate-600">오늘의 세션 & 커밋 데이터 수집</span>
+            </div>
+          </div>
+          <div class="px-5 py-4">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+              <code class="mono text-sm bg-slate-900 text-emerald-400 px-3 py-1.5 rounded-lg shrink-0">dmt sessions watch</code>
+              <span class="text-sm text-slate-600">실시간 세션 모니터링 (idle 감지 + 알림)</span>
+            </div>
+          </div>
+          <div class="px-5 py-4">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+              <code class="mono text-sm bg-slate-900 text-emerald-400 px-3 py-1.5 rounded-lg shrink-0">dmt sessions watch --web</code>
+              <span class="text-sm text-slate-600">watch + 웹 대시보드 동시 실행</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- dmt collect -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0">⬇</span>
+        dmt collect
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 bg-slate-50 border-b border-slate-100">
+          <p class="text-sm text-slate-600">Claude 세션 로그와 Git 커밋을 DB에 수집합니다. 대시보드에 데이터를 표시하려면 이 명령을 먼저 실행하세요.</p>
+        </div>
+        <div class="divide-y divide-slate-100">
+          <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2">
+            <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-d, --date YYYY-MM-DD</code>
+            <span class="text-sm text-slate-500">특정 날짜 수집 (기본값: 오늘)</span>
+          </div>
+          <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2">
+            <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-p, --project NAME</code>
+            <span class="text-sm text-slate-500">특정 프로젝트만 수집</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- dmt sessions -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0">⌨</span>
+        dmt sessions
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+
+        <!-- live -->
+        <div class="px-5 py-4">
+          <div class="font-medium text-slate-800 mb-1 flex items-center gap-2">
+            <code class="mono text-sm text-blue-600">sessions live</code>
+            <span class="text-xs text-slate-400">현재 실행 중인 Claude 세션 표시</span>
+          </div>
+          <div class="space-y-1.5 mt-2">
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-w, --wide</code>
+              <span class="text-slate-500">CWD 등 상세 정보 표시</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-d, --detail</code>
+              <span class="text-slate-500">로그 상태(tool, 파일 등) 포함 표시</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- watch -->
+        <div class="px-5 py-4">
+          <div class="font-medium text-slate-800 mb-1 flex items-center gap-2">
+            <code class="mono text-sm text-blue-600">sessions watch</code>
+            <span class="text-xs text-slate-400">세션 감시 + idle 시 알림</span>
+          </div>
+          <div class="space-y-1.5 mt-2">
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-i, --interval SEC</code>
+              <span class="text-slate-500">갱신 주기 (기본값: 10초)</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">--idle SEC</code>
+              <span class="text-slate-500">idle 판단 기준 시간 (기본값: 30초)</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-t, --tail</code>
+              <span class="text-slate-500">상단 고정 패널 + 하단 스크롤 로그</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-w, --web</code>
+              <span class="text-slate-500">웹 대시보드 동시 실행</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">--web-port PORT</code>
+              <span class="text-slate-500">웹 포트 지정 (기본값: 7317)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- clean -->
+        <div class="px-5 py-4">
+          <div class="font-medium text-slate-800 mb-1 flex items-center gap-2">
+            <code class="mono text-sm text-blue-600">sessions clean</code>
+            <span class="text-xs text-slate-400">idle 세션 종료</span>
+          </div>
+          <div class="space-y-1.5 mt-2">
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-i, --idle MIN</code>
+              <span class="text-slate-500">idle 기준 시간 (기본값: 60분)</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-n, --dry-run</code>
+              <span class="text-slate-500">실제 종료 없이 대상만 출력</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 text-sm">
+              <code class="mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700 shrink-0">-f, --force</code>
+              <span class="text-slate-500">확인 없이 강제 종료</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- dmt tasks -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0">✓</span>
+        dmt tasks
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">tasks add "제목"</code>
+          <span class="text-sm text-slate-500"><code class="mono text-xs">-p PROJECT</code> <code class="mono text-xs">-P high|medium|low</code> <code class="mono text-xs">-d 설명</code></span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">tasks list</code>
+          <span class="text-sm text-slate-500"><code class="mono text-xs">-p PROJECT</code> <code class="mono text-xs">-s STATUS</code> <code class="mono text-xs">-d DATE</code></span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">tasks complete TASK_ID</code>
+          <span class="text-sm text-slate-500">태스크 완료 처리 (<code class="mono text-xs">T-0001</code> 또는 숫자)</span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">tasks update TASK_ID</code>
+          <span class="text-sm text-slate-500"><code class="mono text-xs">-s STATUS</code> <code class="mono text-xs">-P PRIORITY</code></span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">tasks delete TASK_ID</code>
+          <span class="text-sm text-slate-500">태스크 삭제 (<code class="mono text-xs">-f</code> 확인 생략)</span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">tasks rollover</code>
+          <span class="text-sm text-slate-500">미완료 태스크 다음날로 이월</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- dmt config -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0">⚙</span>
+        dmt config
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">config add PATH</code>
+          <span class="text-sm text-slate-500">프로젝트 등록 (<code class="mono text-xs">-n NAME</code> <code class="mono text-xs">-b BRANCH</code>)</span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">config list</code>
+          <span class="text-sm text-slate-500">등록된 프로젝트 목록</span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">config remove NAME</code>
+          <span class="text-sm text-slate-500">프로젝트 등록 해제</span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">config discover</code>
+          <span class="text-sm text-slate-500"><code class="mono text-xs">~/.claude/projects/</code>에서 프로젝트 자동 탐색</span>
+        </div>
+        <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <code class="mono text-sm text-blue-600 shrink-0">config show</code>
+          <span class="text-sm text-slate-500">현재 설정 확인</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Session Status -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0">◉</span>
+        세션 상태
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+        <div class="px-5 py-3 flex items-center gap-3">
+          <span class="text-xs px-2 py-0.5 rounded-full font-medium status-working shrink-0">🔄 working</span>
+          <span class="text-sm text-slate-600">Claude가 응답을 생성 중입니다</span>
+        </div>
+        <div class="px-5 py-3 flex items-center gap-3">
+          <span class="text-xs px-2 py-0.5 rounded-full font-medium status-idle shrink-0">⏸ idle</span>
+          <span class="text-sm text-slate-600">작업 완료, 사용자 입력 대기 중입니다</span>
+        </div>
+        <div class="px-5 py-3 flex items-center gap-3">
+          <span class="text-xs px-2 py-0.5 rounded-full font-medium status-permission shrink-0">⚠️ waiting</span>
+          <span class="text-sm text-slate-600">툴 실행 승인 대기 중입니다</span>
+        </div>
+        <div class="px-5 py-3 flex items-center gap-3">
+          <span class="text-xs px-2 py-0.5 rounded-full font-medium status-waiting shrink-0">💤 inactive</span>
+          <span class="text-sm text-slate-600">최근 활동이 없는 세션입니다</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- DB & Files -->
+    <section>
+      <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0">🗄</span>
+        데이터 저장 위치
+      </h2>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+        <div class="px-5 py-3">
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">데이터베이스</div>
+          <code class="mono text-sm text-slate-700">~/.config/do_my_tasks/data.db</code>
+          <p class="text-xs text-slate-400 mt-1">SQLite — 세션, 커밋, 태스크, 프로젝트 정보 저장</p>
+        </div>
+        <div class="px-5 py-3">
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">환경 변수</div>
+          <code class="mono text-sm text-slate-700">DMT_DB_PATH</code>
+          <p class="text-xs text-slate-400 mt-1">DB 경로를 커스텀하려면 이 환경 변수를 설정하세요</p>
+        </div>
+        <div class="px-5 py-3">
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Claude 로그</div>
+          <code class="mono text-sm text-slate-700">~/.claude/projects/</code>
+          <p class="text-xs text-slate-400 mt-1">Claude Code가 기록하는 세션 JSONL 로그 파일</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+{% endblock %}

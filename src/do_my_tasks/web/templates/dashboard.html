@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 max-w-6xl mx-auto space-y-8">
+
+  <!-- ── Top: date-independent cards ─────────────────────────── -->
+  <div class="mb-2">
+    <h1 class="text-2xl font-bold text-slate-900">Dashboard</h1>
+  </div>
+  <!-- Live Sessions: full width row -->
+  {% set active_live = live_sessions | selectattr('status', 'ne', 'waiting') | list %}
+  <a href="/sessions" class="block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md hover:border-slate-300 transition-all">
+    <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        {% if active_live %}
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        {% else %}
+        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
+        {% endif %}
+        <h2 class="font-semibold text-slate-800 text-sm">Live Sessions</h2>
+      </div>
+      <span class="text-xs font-medium px-2 py-0.5 rounded-full
+        {% if active_live %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+        {{ live_sessions | length }}
+      </span>
+    </div>
+    {% if live_sessions %}
+    <div class="divide-y divide-slate-50">
+      {% for s in live_sessions %}
+      <div class="px-5 py-2.5 flex items-center gap-2">
+        <span class="text-xs px-1.5 py-0.5 rounded-full font-medium status-{{ s.status }} shrink-0">
+          {% if s.status == 'idle' %}⏸ idle
+          {% elif s.status == 'working' %}🔄 working
+          {% elif s.status == 'permission' %}⚠️ waiting
+          {% else %}💤 inactive{% endif %}
+        </span>
+        <span class="text-sm font-medium text-slate-700 truncate flex-1">{{ s.project }}</span>
+        {% if s.branch %}
+        <span class="mono text-xs text-slate-400 shrink-0">{{ s.branch }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-5 py-4 text-sm text-slate-400">No active sessions</div>
+    {% endif %}
+  </a>
+
+  <!-- Projects + Tasks: side by side -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+    <!-- Projects card -->
+    <a href="/projects" class="block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md hover:border-slate-300 transition-all">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="font-semibold text-slate-800 text-sm">Projects</h2>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+          {{ all_projects | length }}
+        </span>
+      </div>
+      <div class="divide-y divide-slate-50">
+        {% if all_projects %}
+          {% for p in all_projects[:6] %}
+          <div class="px-5 py-2.5 flex items-center gap-2">
+            {% if p.is_live %}
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            {% else %}
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-200 shrink-0"></span>
+            {% endif %}
+            <span class="text-sm font-medium text-slate-700 truncate flex-1">{{ p.name }}</span>
+            <span class="mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 shrink-0">{{ p.main_branch }}</span>
+          </div>
+          {% endfor %}
+          {% if all_projects | length > 6 %}
+          <div class="px-5 py-2 text-xs text-slate-400 text-center">+{{ all_projects | length - 6 }} more</div>
+          {% endif %}
+        {% else %}
+          <div class="px-5 py-6 text-center text-sm text-slate-400">No projects registered</div>
+        {% endif %}
+      </div>
+    </a>
+
+    <!-- Tasks card -->
+    <a href="/tasks" class="block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md hover:border-slate-300 transition-all">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="font-semibold text-slate-800 text-sm">Tasks</h2>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full
+          {% if active_tasks %}bg-amber-100 text-amber-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+          {{ active_tasks | length }}
+        </span>
+      </div>
+      <div class="divide-y divide-slate-50">
+        {% if active_tasks %}
+          {% for t in active_tasks[:6] %}
+          <div class="px-5 py-2.5 flex items-center gap-2">
+            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium priority-{{ t.priority }} shrink-0">{{ t.priority[0].upper() }}</span>
+            <span class="text-sm text-slate-700 truncate flex-1">{{ t.title }}</span>
+            <span class="mono text-xs text-slate-400 shrink-0 truncate max-w-24">{{ t.project_name }}</span>
+          </div>
+          {% endfor %}
+          {% if active_tasks | length > 6 %}
+          <div class="px-5 py-2 text-xs text-slate-400 text-center">+{{ active_tasks | length - 6 }} more</div>
+          {% endif %}
+        {% else %}
+          <div class="px-5 py-6 text-center text-sm text-slate-400">No active tasks</div>
+        {% endif %}
+      </div>
+    </a>
+
+  </div>
+
+  <!-- ── Bottom: date-based activity ──────────────────────────── -->
+  <div>
+
+    <!-- Date nav header -->
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">Daily Activity</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{ summary.summary_text }}</p>
+      </div>
+      <div class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-1 py-1 shadow-sm self-start sm:self-auto">
+        <a href="/?date={{ prev_date }}" class="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </a>
+        <span class="px-2 py-1 text-sm font-medium mono text-slate-700">
+          {% if is_today %}Today{% else %}{{ date }}{% endif %}
+        </span>
+        {% if not is_today %}
+        <a href="/?date={{ next_date }}" class="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+        {% else %}
+        <span class="p-2 text-slate-300">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Sessions</div>
+        <div class="text-3xl font-bold text-slate-900">{{ summary.total_sessions }}</div>
+        <div class="text-xs text-slate-500 mt-1">{{ summary.total_active_minutes | fmt_minutes }} active</div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Commits</div>
+        <div class="text-3xl font-bold text-slate-900">{{ summary.total_commits }}</div>
+        <div class="text-xs text-slate-500 mt-1">{{ summary.total_files_changed }} files changed</div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Code Changes</div>
+        <div class="text-3xl font-bold text-slate-900">+{{ summary.total_additions | fmt_number }}</div>
+        <div class="text-xs text-slate-500 mt-1">-{{ summary.total_deletions | fmt_number }} deleted</div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Tokens Used</div>
+        <div class="text-3xl font-bold text-slate-900">{{ (summary.total_input_tokens + summary.total_output_tokens) | fmt_number }}</div>
+        <div class="text-xs text-slate-500 mt-1">{{ summary.total_input_tokens | fmt_number }} in / {{ summary.total_output_tokens | fmt_number }} out</div>
+      </div>
+    </div>
+
+    <!-- Projects breakdown -->
+    {% if summary.projects %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100">
+        <h3 class="font-semibold text-slate-800">Projects</h3>
+      </div>
+      <div class="divide-y divide-slate-50">
+        {% for p in summary.projects %}
+        <div class="px-5 py-4">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <div class="font-medium text-slate-800">{{ p.project_name }}</div>
+              <div class="text-xs text-slate-400 mono mt-0.5">{{ p.project_path }}</div>
+            </div>
+            <div class="text-right text-xs text-slate-400 space-y-0.5 shrink-0 ml-4">
+              <div>{{ p.sessions | length }} session{% if p.sessions | length != 1 %}s{% endif %}</div>
+              <div>{{ p.total_session_minutes | fmt_minutes }}</div>
+            </div>
+          </div>
+
+          {% if p.commits %}
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            {% set commit_types = {} %}
+            {% for c in p.commits %}
+              {% if c.commit_type in commit_types %}
+                {% set _ = commit_types.update({c.commit_type: commit_types[c.commit_type] + 1}) %}
+              {% else %}
+                {% set _ = commit_types.update({c.commit_type: 1}) %}
+              {% endif %}
+            {% endfor %}
+            {% for ct, cnt in commit_types.items() %}
+            <span class="text-xs px-2 py-0.5 rounded-full font-medium commit-{{ ct }}">{{ ct }} ×{{ cnt }}</span>
+            {% endfor %}
+          </div>
+          <div class="space-y-1.5 mb-3">
+            {% for c in p.commits[:5] %}
+            <div class="flex items-start gap-2 text-xs">
+              <span class="mono text-slate-400 shrink-0">{{ c.sha[:7] }}</span>
+              <span class="text-slate-600 leading-snug">{{ c.message.split('\n')[0][:80] }}</span>
+            </div>
+            {% endfor %}
+            {% if p.commits | length > 5 %}
+            <div class="text-xs text-slate-400">+ {{ p.commits | length - 5 }} more commits</div>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="text-xs text-slate-400 mb-3">No commits today</div>
+          {% endif %}
+
+          <div class="flex flex-wrap gap-4 text-xs text-slate-400">
+            <span>+{{ p.total_additions }} / -{{ p.total_deletions }}</span>
+            <span>{{ (p.total_input_tokens + p.total_output_tokens) | fmt_number }} tokens</span>
+            {% if p.tasks %}<span>{{ p.tasks | length }} task{% if p.tasks | length != 1 %}s{% endif %}</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-2xl border border-dashed border-slate-200 py-12 text-center">
+      <div class="text-slate-300 text-4xl mb-3">📭</div>
+      <div class="text-sm text-slate-500 font-medium">No activity for {{ date }}</div>
+      <div class="text-xs text-slate-400 mt-1">Run <code class="mono bg-slate-100 px-1 rounded">dmt collect</code> to sync data</div>
+    </div>
+    {% endif %}
+
+    <!-- Rolled-over tasks -->
+    {% if summary.rolled_over_tasks %}
+    <div class="mt-5 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-amber-600">⏩</span>
+        <h3 class="font-semibold text-amber-800">Rolled-Over Tasks ({{ summary.rolled_over_tasks | length }})</h3>
+      </div>
+      <div class="space-y-2">
+        {% for t in summary.rolled_over_tasks %}
+        <div class="flex items-center gap-3 text-sm">
+          <span class="mono text-xs text-amber-500">T-{{ '%04d' % t.id }}</span>
+          <span class="text-amber-800">{{ t.title }}</span>
+          <span class="text-xs text-amber-500 ml-auto">{{ t.project_name }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if is_today %}
+<script>
+  async function refreshLiveSessions() {
+    try {
+      const res = await fetch('/api/live-sessions');
+      const sessions = await res.json();
+      // Full reload to refresh all top cards at once
+    } catch(e) {}
+  }
+  setTimeout(() => window.location.reload(), 30000);
+</script>
+{% endif %}
+{% endblock %}

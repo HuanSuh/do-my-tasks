@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}DMT{% endblock %} — Do My Tasks</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4', 100: '#dcfce7',
+              500: '#22c55e', 600: '#16a34a',
+              700: '#15803d', 900: '#14532d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+    .status-idle       { @apply bg-emerald-100 text-emerald-700; }
+    .status-working    { @apply bg-blue-100 text-blue-700; }
+    .status-permission { @apply bg-amber-100 text-amber-700; }
+    .status-waiting    { @apply bg-slate-100 text-slate-500; }
+    .priority-high     { @apply bg-red-100 text-red-700 border border-red-200; }
+    .priority-medium   { @apply bg-amber-100 text-amber-700 border border-amber-200; }
+    .priority-low      { @apply bg-slate-100 text-slate-600 border border-slate-200; }
+    .commit-feat     { @apply bg-blue-100 text-blue-700; }
+    .commit-fix      { @apply bg-red-100 text-red-700; }
+    .commit-docs     { @apply bg-purple-100 text-purple-700; }
+    .commit-refactor { @apply bg-amber-100 text-amber-700; }
+    .commit-chore    { @apply bg-slate-100 text-slate-600; }
+    .commit-test     { @apply bg-teal-100 text-teal-700; }
+    .commit-other    { @apply bg-gray-100 text-gray-600; }
+    /* Sidebar slide transition */
+    #sidebar { transition: transform 0.25s ease; }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-900">
+
+<!-- Mobile top bar -->
+<div class="md:hidden fixed top-0 left-0 right-0 h-14 bg-slate-900 flex items-center px-4 z-30 shadow-lg">
+  <button onclick="openSidebar()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+    </svg>
+  </button>
+  <div class="ml-3 flex items-center gap-2">
+    <div class="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">D</div>
+    <span class="font-semibold text-sm text-white">Do My Tasks</span>
+  </div>
+</div>
+
+<!-- Sidebar overlay (mobile) -->
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/50 z-20 md:hidden" onclick="closeSidebar()"></div>
+
+<!-- Layout -->
+<div class="flex h-full min-h-screen">
+
+  <!-- Sidebar -->
+  <aside id="sidebar"
+         class="fixed inset-y-0 left-0 w-56 bg-slate-900 text-slate-100 flex flex-col shrink-0 z-30
+                -translate-x-full md:translate-x-0 md:relative md:z-auto">
+    <!-- Logo -->
+    <div class="px-5 py-5 border-b border-slate-700">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">D</div>
+        <div>
+          <div class="font-semibold text-sm text-white">Do My Tasks</div>
+          <div class="text-xs text-slate-400 mono">dmt</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a href="/" onclick="closeSidebar()"
+         class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                {% if active_page == 'dashboard' %}bg-slate-700 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        Dashboard
+      </a>
+      <a href="/projects" onclick="closeSidebar()"
+         class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                {% if active_page == 'projects' %}bg-slate-700 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+        </svg>
+        Projects
+      </a>
+      <a href="/tasks" onclick="closeSidebar()"
+         class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                {% if active_page == 'tasks' %}bg-slate-700 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+        </svg>
+        Tasks
+      </a>
+      <a href="/sessions" onclick="closeSidebar()"
+         class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                {% if active_page == 'sessions' %}bg-slate-700 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/>
+        </svg>
+        Sessions
+      </a>
+      <a href="/activity" onclick="closeSidebar()"
+         class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                {% if active_page == 'activity' %}bg-slate-700 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+        </svg>
+        Activity
+      </a>
+    </nav>
+
+    <!-- Bottom: Guide + version -->
+    <div class="px-3 pb-3 border-t border-slate-700 pt-3 space-y-1">
+      <a href="/guide" onclick="closeSidebar()"
+         class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                {% if active_page == 'guide' %}bg-slate-700 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+        </svg>
+        Guide
+      </a>
+      <div class="px-3 py-1">
+        <div class="text-xs text-slate-600 mono">v0.1.0</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="flex-1 overflow-auto pt-14 md:pt-0 min-w-0">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<script>
+  function openSidebar() {
+    document.getElementById('sidebar').classList.remove('-translate-x-full');
+    document.getElementById('sidebar-overlay').classList.remove('hidden');
+  }
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.add('-translate-x-full');
+    document.getElementById('sidebar-overlay').classList.add('hidden');
+  }
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

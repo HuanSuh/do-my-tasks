@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}Sessions{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Sessions</h1>
+    <p class="text-sm text-slate-500 mt-0.5">{{ live_sessions | length }} running · {{ session_rows | length }} recorded</p>
+  </div>
+
+  <!-- Live sessions -->
+  {% set active_live = live_sessions | selectattr('status', 'ne', 'waiting') | list %}
+  {% set inactive_live = live_sessions | selectattr('status', 'equalto', 'waiting') | list %}
+
+  {% if live_sessions %}
+  <div class="mb-8 space-y-4">
+
+    {% if active_live %}
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Live Now</h2>
+        <span class="text-xs text-slate-400">{{ active_live | length }}</span>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100 overflow-hidden">
+        {% for s in active_live %}
+        <div class="session-row">
+          <div class="px-5 py-3 cursor-pointer hover:bg-slate-50 transition-colors" onclick="toggleSession(this.closest('.session-row'))">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-semibold text-slate-900">{{ s.project }}</span>
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium status-{{ s.status }}">
+                {% if s.status == 'idle' %}⏸ idle
+                {% elif s.status == 'working' %}🔄 working
+                {% elif s.status == 'permission' %}⚠️ waiting
+                {% endif %}
+              </span>
+              {% if s.branch %}
+              <span class="mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{{ s.branch }}</span>
+              {% endif %}
+              <svg class="chevron w-4 h-4 text-slate-300 ml-auto shrink-0 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+            <div class="flex items-center gap-3 text-xs text-slate-400">
+              <span class="mono">PID {{ s.pid }}</span>
+              <span>·</span>
+              <span>{{ s.started }} · {{ s.elapsed }} ago</span>
+              {% if s.last_ts %}
+              <span>·</span>
+              <span class="mono">↻ {{ s.last_ts }}</span>
+              {% endif %}
+              {% if s.last_user_msg %}
+              <span>·</span>
+              <span class="truncate text-slate-400 italic">{{ s.last_user_msg[:80] }}</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="session-detail hidden border-t border-slate-100 bg-slate-50 px-5 py-4 space-y-3">
+            {% if s.last_user_msg %}
+            <div>
+              <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Last Message</div>
+              <div class="text-sm text-slate-700">{{ s.last_user_msg }}</div>
+            </div>
+            {% endif %}
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {% if s.tools %}
+              <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Tools</div>
+                <div class="flex flex-wrap gap-1">
+                  {% for t in s.tools %}
+                  <span class="mono text-xs bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">{{ t }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if s.files_modified %}
+              <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Files Modified</div>
+                <div class="space-y-0.5 max-h-24 overflow-y-auto">
+                  {% for f in s.files_modified %}
+                  <div class="mono text-xs text-slate-500 truncate" title="{{ f }}">{{ f }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if s.commands_run %}
+              <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Commands</div>
+                <div class="space-y-0.5 max-h-24 overflow-y-auto">
+                  {% for c in s.commands_run %}
+                  <div class="mono text-xs text-slate-500 truncate" title="{{ c }}">{{ c }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="text-xs text-slate-400 pt-1 border-t border-slate-200 flex gap-4">
+              {% if s.last_ts %}<span>Last activity {{ s.last_ts }}</span>{% endif %}
+              {% if s.cwd %}<span class="mono text-slate-300 truncate" title="{{ s.cwd }}">{{ s.cwd }}</span>{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if inactive_live %}
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Inactive</h2>
+        <span class="text-xs text-slate-400">{{ inactive_live | length }}</span>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100 overflow-hidden">
+        {% for s in inactive_live %}
+        <div class="session-row">
+          <div class="px-5 py-3 cursor-pointer hover:bg-slate-50 transition-colors" onclick="toggleSession(this.closest('.session-row'))">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-semibold text-slate-400">{{ s.project }}</span>
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium status-waiting">💤 inactive</span>
+              {% if s.branch %}
+              <span class="mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-400">{{ s.branch }}</span>
+              {% endif %}
+              <svg class="chevron w-4 h-4 text-slate-300 ml-auto shrink-0 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+            <div class="flex items-center gap-3 text-xs text-slate-400">
+              <span class="mono">PID {{ s.pid }}</span>
+              <span>·</span>
+              <span>{{ s.started }} · {{ s.elapsed }} ago</span>
+              {% if s.last_ts %}
+              <span>·</span>
+              <span class="mono">↻ {{ s.last_ts }}</span>
+              {% endif %}
+              {% if s.last_user_msg %}
+              <span>·</span>
+              <span class="truncate text-slate-400 italic">{{ s.last_user_msg[:80] }}</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="session-detail hidden border-t border-slate-100 bg-slate-50 px-5 py-4 space-y-3">
+            {% if s.last_user_msg %}
+            <div>
+              <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Last Message</div>
+              <div class="text-sm text-slate-700">{{ s.last_user_msg }}</div>
+            </div>
+            {% endif %}
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {% if s.tools %}
+              <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Tools</div>
+                <div class="flex flex-wrap gap-1">
+                  {% for t in s.tools %}
+                  <span class="mono text-xs bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">{{ t }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if s.files_modified %}
+              <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Files Modified</div>
+                <div class="space-y-0.5 max-h-24 overflow-y-auto">
+                  {% for f in s.files_modified %}
+                  <div class="mono text-xs text-slate-500 truncate" title="{{ f }}">{{ f }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if s.commands_run %}
+              <div>
+                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Commands</div>
+                <div class="space-y-0.5 max-h-24 overflow-y-auto">
+                  {% for c in s.commands_run %}
+                  <div class="mono text-xs text-slate-500 truncate" title="{{ c }}">{{ c }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="text-xs text-slate-400 pt-1 border-t border-slate-200 flex gap-4">
+              {% if s.last_ts %}<span>Last activity {{ s.last_ts }}</span>{% endif %}
+              {% if s.cwd %}<span class="mono text-slate-300 truncate" title="{{ s.cwd }}">{{ s.cwd }}</span>{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}
+
+  <!-- Recorded sessions -->
+  <div>
+    <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
+        <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Recorded Sessions</h2>
+        <span class="text-xs text-slate-400">{{ session_rows | length }}</span>
+      </div>
+      <!-- Date nav -->
+      <div class="flex items-center gap-1 bg-white rounded-xl border border-slate-200 px-1 py-1 shadow-sm">
+        <a href="/sessions?date={{ prev_date }}" class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </a>
+        <span class="px-2 py-0.5 text-xs font-medium mono text-slate-700">
+          {% if is_today %}Today{% else %}{{ date }}{% endif %}
+        </span>
+        {% if not is_today %}
+        <a href="/sessions?date={{ next_date }}" class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+        {% else %}
+        <span class="p-1.5 text-slate-300">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if session_rows %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+      {% for s in session_rows %}
+      <div class="session-row">
+
+        <!-- List tile: two lines (click header only) -->
+        <div class="flex items-start gap-3 px-4 md:px-5 py-3 cursor-pointer hover:bg-slate-50 transition-colors" onclick="toggleSession(this.closest('.session-row'))">
+          <!-- Left: two-line content -->
+          <div class="flex-1 min-w-0">
+            <!-- Line 1: project + branch + time -->
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mb-0.5">
+              <span class="font-semibold text-slate-900">{{ s.project_name }}</span>
+              {% if s.git_branch %}
+              <span class="mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{{ s.git_branch }}</span>
+              {% endif %}
+              <span class="text-xs mono text-slate-400">
+                {% if s.start_time %}{{ s.start_time | as_local('%H:%M') }}{% if s.end_time %} – {{ s.end_time | as_local('%H:%M') }}{% endif %}{% endif %}
+              </span>
+            </div>
+            <!-- Line 2: duration + msgs + tokens + tools -->
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+              <span class="font-medium text-slate-500">{{ s.duration_minutes | fmt_minutes }}</span>
+              <span class="hidden sm:inline">·</span>
+              <span>{{ s.message_count }} msgs</span>
+              <span class="hidden sm:inline">·</span>
+              <span class="mono">{{ (s.total_input_tokens + s.total_output_tokens) | fmt_number }} tok</span>
+              {% if s.tools_used %}
+              <div class="hidden sm:flex gap-1 flex-wrap">
+                {% for tool in (s.tools_used if s.tools_used is iterable else [])[:3] %}
+                <span class="mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{{ tool }}</span>
+                {% endfor %}
+                {% if (s.tools_used | length) > 3 %}
+                <span class="text-slate-300">+{{ (s.tools_used | length) - 3 }}</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          <!-- Right: chevron -->
+          <svg class="chevron w-4 h-4 text-slate-300 shrink-0 mt-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </div>
+
+        <!-- Expanded detail -->
+        <div class="session-detail hidden border-t border-slate-100 bg-slate-50 px-5 py-4 space-y-4">
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {% if s.tools_used %}
+            <div>
+              <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Tools Used</div>
+              <div class="flex flex-wrap gap-1">
+                {% for tool in (s.tools_used if s.tools_used is iterable else []) %}
+                <span class="mono text-xs bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">{{ tool }}</span>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+
+            {% if s.files_accessed %}
+            <div>
+              <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Files Accessed</div>
+              <div class="space-y-0.5 max-h-32 overflow-y-auto">
+                {% for f in (s.files_accessed if s.files_accessed is iterable else []) %}
+                <div class="mono text-xs text-slate-500 truncate" title="{{ f }}">{{ f }}</div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div>
+              <div class="text-slate-400 mb-0.5">Input tokens</div>
+              <div class="font-medium text-slate-700 mono">{{ s.total_input_tokens | fmt_number }}</div>
+            </div>
+            <div>
+              <div class="text-slate-400 mb-0.5">Output tokens</div>
+              <div class="font-medium text-slate-700 mono">{{ s.total_output_tokens | fmt_number }}</div>
+            </div>
+            <div>
+              <div class="text-slate-400 mb-0.5">User msgs</div>
+              <div class="font-medium text-slate-700">{{ s.user_message_count }}</div>
+            </div>
+            <div>
+              <div class="text-slate-400 mb-0.5">Assistant msgs</div>
+              <div class="font-medium text-slate-700">{{ s.assistant_message_count }}</div>
+            </div>
+          </div>
+
+          {% if s.models_used %}
+          <div>
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Models</div>
+            <div class="flex flex-wrap gap-1">
+              {% for m in (s.models_used if s.models_used is iterable else []) %}
+              <span class="mono text-xs bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">{{ m }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs pt-2 border-t border-slate-200">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-400">Session ID</span>
+              <span class="mono text-slate-500">{{ s.session_id }}</span>
+              <button onclick="copyResume('{{ s.session_id }}', this)"
+                      class="text-slate-400 hover:text-emerald-600 transition-colors" title="Copy resume command">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+              </button>
+            </div>
+            {% if s.cwd %}<div class="min-w-0"><span class="text-slate-400">CWD </span><span class="mono text-slate-500">{{ s.cwd }}</span></div>{% endif %}
+          </div>
+
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="bg-white rounded-2xl border border-dashed border-slate-200 py-12 text-center">
+      <div class="text-slate-300 text-4xl mb-3">🖥️</div>
+      <div class="text-sm text-slate-500 font-medium">No sessions recorded for {{ date }}</div>
+      <div class="text-xs text-slate-400 mt-1">Run <code class="mono bg-slate-100 px-1 rounded">dmt collect</code> to sync</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function toggleSession(row) {
+    const detail = row.querySelector('.session-detail');
+    const chevron = row.querySelector('.chevron');
+    const isOpen = !detail.classList.contains('hidden');
+    detail.classList.toggle('hidden', isOpen);
+    chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+  }
+
+  function copyResume(sessionId, btn) {
+    navigator.clipboard.writeText(`claude --resume ${sessionId}`).then(() => {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    });
+  }
+</script>
+{% if is_today %}
+<script>
+  setTimeout(() => window.location.reload(), 15000);
+</script>
+{% endif %}
+{% endblock %}

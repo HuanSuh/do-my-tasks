@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Tasks{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Tasks</h1>
+      <p class="text-sm text-slate-500 mt-0.5">
+        {{ (pending | length) + (in_progress | length) }} active · {{ completed | length }} done
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- Date nav -->
+      <div class="flex items-center gap-1 bg-white rounded-xl border border-slate-200 px-1 py-1 shadow-sm">
+        <a href="/tasks?date={{ prev_date }}" class="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </a>
+        <span class="px-2 py-1 text-sm font-medium mono text-slate-700">
+          {% if is_today %}Today{% else %}{{ date }}{% endif %}
+        </span>
+        {% if not is_today %}
+        <a href="/tasks?date={{ next_date }}" class="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+        {% else %}
+        <span class="p-2 text-slate-300">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </span>
+        {% endif %}
+      </div>
+      <!-- Add task button -->
+      <button onclick="document.getElementById('add-modal').classList.remove('hidden')"
+              class="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Add Task
+      </button>
+    </div>
+  </div>
+
+  <!-- Columns layout -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+
+    <!-- Pending / In Progress -->
+    <div class="md:col-span-2 space-y-4">
+
+      <!-- In Progress -->
+      {% if in_progress %}
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+          <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">In Progress ({{ in_progress | length }})</h3>
+        </div>
+        <div class="space-y-2">
+          {% for t in in_progress %}
+          {% include "_task_card.html" %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Pending -->
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+          <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Pending ({{ pending | length }})</h3>
+        </div>
+        {% if pending %}
+        <div class="space-y-2">
+          {% for t in pending %}
+          {% include "_task_card.html" %}
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="bg-white rounded-2xl border border-dashed border-slate-200 py-8 text-center">
+          <div class="text-slate-300 text-3xl mb-2">✓</div>
+          <div class="text-sm text-slate-400">No pending tasks</div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Rolled Over -->
+      {% if rolled_over %}
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+          <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Rolled Over ({{ rolled_over | length }})</h3>
+        </div>
+        <div class="space-y-2 opacity-60">
+          {% for t in rolled_over %}
+          {% include "_task_card.html" %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Completed -->
+    <div>
+      <div class="flex items-center gap-2 mb-3">
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Done ({{ completed | length }})</h3>
+      </div>
+      {% if completed %}
+      <div class="space-y-2">
+        {% for t in completed %}
+        <div class="bg-white rounded-xl border border-slate-200 px-4 py-3 opacity-70">
+          <div class="flex items-start gap-3">
+            <svg class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-slate-600 line-through">{{ t.title }}</div>
+              <div class="text-xs text-slate-400 mono mt-0.5">{{ t.project_name }}</div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="bg-white rounded-2xl border border-dashed border-slate-200 py-8 text-center">
+        <div class="text-sm text-slate-400">Nothing completed yet</div>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+
+<!-- Add Task Modal -->
+<div id="add-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="font-semibold text-slate-800">Add Task</h2>
+      <button onclick="document.getElementById('add-modal').classList.add('hidden')"
+              class="text-slate-400 hover:text-slate-600 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form method="post" action="/tasks/add" class="px-6 py-5 space-y-4">
+      <input type="hidden" name="date" value="{{ date }}">
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Title *</label>
+        <input type="text" name="title" required placeholder="What needs to be done?"
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1.5">Project *</label>
+          <select name="project" required
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% if projects %}
+              {% for p in projects %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            {% else %}
+            <option value="default">default</option>
+            {% endif %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1.5">Priority</label>
+          <select name="priority"
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Description</label>
+        <textarea name="description" rows="3" placeholder="Optional details..."
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"></textarea>
+      </div>
+
+      <div class="flex gap-3 pt-1">
+        <button type="button"
+                onclick="document.getElementById('add-modal').classList.add('hidden')"
+                class="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button type="submit"
+                class="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
+          Add Task
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

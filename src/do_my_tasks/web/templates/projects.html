@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 max-w-6xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Projects</h1>
+      <p class="text-sm text-slate-500 mt-0.5">{{ projects | length }} active project{% if projects | length != 1 %}s{% endif %}</p>
+    </div>
+    <button onclick="document.getElementById('add-project-modal').classList.remove('hidden')"
+            class="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm self-start sm:self-auto">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Add Project
+    </button>
+  </div>
+
+  {% if projects %}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    {% for p in projects %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+      <!-- Project header -->
+      <div class="px-5 py-4 border-b border-slate-100">
+        <!-- Row 1: name + edit button -->
+        <div class="flex items-center justify-between gap-3 mb-0.5">
+          <h2 class="font-semibold text-slate-900 text-base truncate">{{ p.name }}</h2>
+          <button onclick="openEditModal(this)"
+                  data-name="{{ p.name }}"
+                  data-slug="{{ p.slug or '' }}"
+                  data-path="{{ p.path }}"
+                  data-main-branch="{{ p.main_branch }}"
+                  class="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+          </button>
+        </div>
+        <!-- Row 2: path -->
+        <div class="mono text-xs text-slate-400 truncate mb-2" title="{{ p.path }}">{{ p.path }}</div>
+        <!-- Row 3: badges -->
+        <div class="flex items-center gap-2 flex-wrap">
+          {% if p.slug %}
+          <span class="mono text-xs px-1.5 py-0.5 rounded-md font-medium bg-violet-100 text-violet-600">{{ p.slug }}</span>
+          {% endif %}
+          {% if p.active_tasks > 0 %}
+          <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">
+            {{ p.active_tasks }} task{% if p.active_tasks != 1 %}s{% endif %}
+          </span>
+          {% endif %}
+          <span class="mono text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{{ p.main_branch }}</span>
+        </div>
+      </div>
+
+      <!-- Stats grid -->
+      <div class="grid grid-cols-3 divide-x divide-slate-100">
+        <div class="px-4 py-3 text-center">
+          <div class="text-xl font-bold text-slate-900">{{ p.total_sessions }}</div>
+          <div class="text-xs text-slate-400 mt-0.5">sessions</div>
+        </div>
+        <div class="px-4 py-3 text-center">
+          <div class="text-xl font-bold text-slate-900">{{ p.total_minutes | fmt_minutes }}</div>
+          <div class="text-xs text-slate-400 mt-0.5">active</div>
+        </div>
+        <div class="px-4 py-3 text-center">
+          <div class="text-xl font-bold text-slate-900">{{ p.total_commits }}</div>
+          <div class="text-xs text-slate-400 mt-0.5">commits</div>
+        </div>
+      </div>
+
+      <!-- Footer row -->
+      <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+        <div class="flex items-center gap-3">
+          <span class="text-emerald-600 font-medium">+{{ p.total_additions | fmt_number }}</span>
+          <span class="text-red-500 font-medium">-{{ p.total_deletions | fmt_number }}</span>
+          <span>{{ p.total_tokens | fmt_number }} tokens</span>
+        </div>
+        <div>
+          {% if p.last_active %}
+            {{ p.last_active | as_local('%Y-%m-%d %H:%M') }}
+          {% else %}
+            <span class="text-slate-300">no activity</span>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div class="bg-white rounded-2xl border border-dashed border-slate-200 py-16 text-center">
+    <div class="text-slate-300 text-4xl mb-3">📁</div>
+    <div class="text-sm text-slate-500 font-medium">No projects found</div>
+    <div class="text-xs text-slate-400 mt-1">Add a project above or run <code class="mono bg-slate-100 px-1 rounded">dmt config discover</code></div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Add Project Modal -->
+<div id="add-project-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="font-semibold text-slate-800">Add Project</h2>
+      <button onclick="document.getElementById('add-project-modal').classList.add('hidden')"
+              class="text-slate-400 hover:text-slate-600 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form method="post" action="/projects/add" class="px-6 py-5 space-y-4">
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Path *</label>
+        <input type="text" name="path" id="project-path" required
+               placeholder="/Users/me/workspace/myapp"
+               oninput="autoFillName(this.value)"
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+        <p class="text-xs text-slate-400 mt-1">프로젝트 루트 디렉토리 경로</p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1.5">Name</label>
+          <input type="text" name="name" id="project-name"
+                 placeholder="자동 입력"
+                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+          <p class="text-xs text-slate-400 mt-1">비우면 폴더명 사용</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1.5">Main Branch</label>
+          <input type="text" name="main_branch" value="main"
+                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Slug</label>
+        <input type="text" name="slug" id="project-slug"
+               placeholder="예: howmuch, 3o3-flutter"
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+        <p class="text-xs text-slate-400 mt-1">태스크 관리 등 식별자로 사용 (선택)</p>
+      </div>
+
+      <div class="flex gap-3 pt-1">
+        <button type="button"
+                onclick="document.getElementById('add-project-modal').classList.add('hidden')"
+                class="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button type="submit"
+                class="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
+          Add Project
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Project Modal -->
+<div id="edit-project-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="font-semibold text-slate-800">Edit Project</h2>
+      <button onclick="document.getElementById('edit-project-modal').classList.add('hidden')"
+              class="text-slate-400 hover:text-slate-600 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form method="post" action="/projects/edit" class="px-6 py-5 space-y-4">
+      <input type="hidden" name="original_name" id="edit-original-name">
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Name</label>
+        <input type="text" name="name" id="edit-name" required
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Path</label>
+        <input type="text" name="path" id="edit-path" required
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Main Branch</label>
+        <input type="text" name="main_branch" id="edit-main-branch"
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1.5">Slug</label>
+        <input type="text" name="slug" id="edit-slug"
+               placeholder="예: howmuch, 3o3-flutter"
+               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+        <p class="text-xs text-slate-400 mt-1">태스크 관리 등 식별자로 사용 (선택)</p>
+      </div>
+
+      <div class="flex gap-3 pt-1">
+        <button type="button"
+                onclick="document.getElementById('edit-project-modal').classList.add('hidden')"
+                class="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button type="submit"
+                class="flex-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
+          Save
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function autoFillName(path) {
+    const nameInput = document.getElementById('project-name');
+    if (nameInput.dataset.manual) return;
+    const parts = path.replace(/\/$/, '').split('/');
+    nameInput.placeholder = parts[parts.length - 1] || '자동 입력';
+  }
+  document.getElementById('project-name').addEventListener('input', function() {
+    this.dataset.manual = this.value ? '1' : '';
+  });
+
+  function openEditModal(btn) {
+    document.getElementById('edit-original-name').value = btn.dataset.name;
+    document.getElementById('edit-name').value = btn.dataset.name;
+    document.getElementById('edit-path').value = btn.dataset.path;
+    document.getElementById('edit-main-branch').value = btn.dataset.mainBranch;
+    document.getElementById('edit-slug').value = btn.dataset.slug || '';
+    document.getElementById('edit-project-modal').classList.remove('hidden');
+  }
+</script>
+{% endblock %}
