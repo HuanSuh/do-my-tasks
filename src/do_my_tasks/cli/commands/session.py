@@ -10,8 +10,11 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.layout import Layout
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from do_my_tasks.cli.output import is_json_mode
 
@@ -97,6 +100,7 @@ def _find_claude_processes() -> list[dict]:
             ["ps", "axo", "pid,lstart,args"],
             capture_output=True,
             text=True,
+            env={**__import__("os").environ, "LC_ALL": "C"},
         )
     except OSError:
         return []
@@ -113,7 +117,10 @@ def _find_claude_processes() -> list[dict]:
         args_str = " ".join(parts[6:])
 
         # Match claude CLI processes, skip helpers/renderers
-        if "/claude" not in args_str and args_str.strip() not in ("claude", "claude --resume"):
+        # args_str may be: "claude", "claude .", "claude --resume", "/path/to/claude", etc.
+        cmd = args_str.strip().split()[0] if args_str.strip() else ""
+        is_claude = cmd == "claude" or cmd.endswith("/claude")
+        if not is_claude:
             continue
         skip_words = ("Helper", "Renderer", "MacOS/Auto-Claude", "chrome-native")
         if any(skip in args_str for skip in skip_words):
@@ -156,11 +163,14 @@ def _get_cwd(pid: str) -> str | None:
 def _get_project_name(cwd: str) -> str:
     """Extract project name from cwd, handling worktree paths.
 
-    Normal:    /Users/me/workspace/myapp          -> myapp
-    Worktree:  /Users/me/workspace/myapp/.claude/worktrees/feat-x -> myapp
+    Normal:    /Users/me/workspace/myapp                              -> myapp
+    Worktree:  /Users/me/workspace/myapp/.claude/worktrees/feat-x    -> myapp
+    Worktree:  /Users/me/workspace/myapp/.worktrees/feat-x           -> myapp
     """
     if "/.claude/worktrees/" in cwd:
         return Path(cwd.split("/.claude/worktrees/")[0]).name
+    if "/.worktrees/" in cwd:
+        return Path(cwd.split("/.worktrees/")[0]).name
     return Path(cwd).name
 
 
@@ -192,13 +202,28 @@ def _get_project_log_dirs(cwd: str) -> list[Path]:
             direct = base / enc
             if direct.exists() and direct not in search_dirs:
                 search_dirs.append(direct)
-        # Worktree: cwd contains .claude/worktrees/<name>
-        # Search for dirs matching *--claude-worktrees-<name>
-        if "/.claude/worktrees/" in cwd:
-            wt_name = cwd.split("/.claude/worktrees/")[-1].rstrip("/")
+        # Worktree: cwd contains .claude/worktrees/<name> or .worktrees/<name>
+        # Claude Code encodes these as *--claude-worktrees-<name> or *--worktrees-<name>
+        # Claude Code also encodes _ as - in worktree names.
+        for wt_marker, wt_prefix in (
+            ("/.claude/worktrees/", "--claude-worktrees-"),
+            ("/.worktrees/", "--worktrees-"),
+        ):
+            if wt_marker not in cwd:
+                continue
+            wt_name = cwd.split(wt_marker)[-1].rstrip("/")
+            wt_name_alt = wt_name.replace("_", "-")
             for d in base.iterdir():
-                if d.is_dir() and d.name.endswith(f"--claude-worktrees-{wt_name}"):
-                    search_dirs.append(d)
+                if not d.is_dir():
+                    continue
+                if d.name.endswith(f"{wt_prefix}{wt_name}"):
+                    if d not in search_dirs:
+                        search_dirs.append(d)
+                elif wt_name_alt != wt_name and d.name.endswith(
+                    f"{wt_prefix}{wt_name_alt}"
+                ):
+                    if d not in search_dirs:
+                        search_dirs.append(d)
 
     return search_dirs
 
@@ -337,6 +362,12 @@ def _match_pids_to_logs(
         ]
 
         # --- Tier 2: birth time (normal sessions only) ---
+        # Claude Code creates JSONL lazily on first message, so the file is
+        # always born AFTER the process starts. Files born before process
+        # start belong to a previous/different session and must be excluded.
+        _BIRTH_GRACE = 5.0   # seconds: allow small clock/timing skew
+        _BIRTH_MAX = 3600.0  # seconds: max window after process start
+
         tier2_unmatched: list[dict] = []
         sorted_normal = sorted(
             normal_procs,
@@ -350,16 +381,19 @@ def _match_pids_to_logs(
 
             pid_ts = proc["started"].timestamp()
             best_match = None
-            best_delta = 900.0  # 15 min tolerance
+            best_delta = _BIRTH_MAX
 
             for path, mtime in remaining:
                 try:
                     birth = path.stat().st_birthtime
                 except (OSError, AttributeError):
                     continue
-                delta = abs(birth - pid_ts)
-                if delta < best_delta:
-                    best_delta = delta
+                # signed delta: positive = file born after process started
+                signed = birth - pid_ts
+                # Only accept files born at or after process start
+                # (with small grace for clock skew)
+                if signed >= -_BIRTH_GRACE and signed < best_delta:
+                    best_delta = signed
                     best_match = (path, mtime)
 
             if best_match:
@@ -419,7 +453,7 @@ def _read_tail(log_path: Path, size: int = 4096) -> list[str]:
 
 
 def _get_last_log_timestamp(log_path: Path) -> datetime | None:
-    """Get the timestamp of the last entry in a JSONL log file."""
+    """Get the timestamp of the last entry in a JSONL log file (local naive)."""
     for line in reversed(_read_tail(log_path)):
         line = line.strip()
         if not line:
@@ -428,9 +462,8 @@ def _get_last_log_timestamp(log_path: Path) -> datetime | None:
             entry = json.loads(line)
             ts_str = entry.get("timestamp")
             if ts_str:
-                return datetime.fromisoformat(
-                    ts_str.replace("Z", "+00:00")
-                )
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                return ts.astimezone().replace(tzinfo=None)
         except (json.JSONDecodeError, ValueError):
             continue
     return None
@@ -674,9 +707,8 @@ def _get_session_state(log_path: Path) -> dict:
 
         if ts_str:
             try:
-                state["last_ts"] = datetime.fromisoformat(
-                    ts_str.replace("Z", "+00:00")
-                )
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                state["last_ts"] = ts.astimezone().replace(tzinfo=None)
             except ValueError:
                 pass
 
@@ -700,20 +732,106 @@ def _get_session_state(log_path: Path) -> dict:
     return state
 
 
-def _send_notification(title: str, message: str) -> None:
-    """Send macOS notification via osascript."""
-    script = (
-        f'display notification "{message}" '
-        f'with title "{title}" sound name "Glass"'
-    )
+def _get_tty_for_pid(pid: str) -> str | None:
+    """Get the TTY device path for a given PID."""
     try:
-        subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            timeout=5,
+        result = subprocess.run(
+            ["ps", "-o", "tty=", "-p", pid],
+            capture_output=True, text=True, timeout=3,
         )
+        tty = result.stdout.strip()
+        if tty and tty != "??":
+            return f"/dev/{tty}"
     except (OSError, subprocess.TimeoutExpired):
         pass
+    return None
+
+
+def _build_activate_terminal_script(tty: str) -> str:
+    """Build AppleScript to activate the terminal tab with the given TTY."""
+    import os
+    term_program = os.environ.get("TERM_PROGRAM", "")
+
+    if "iTerm" in term_program:
+        return (
+            'tell application "iTerm"\n'
+            "  activate\n"
+            "  repeat with aWindow in windows\n"
+            "    repeat with aTab in tabs of aWindow\n"
+            "      repeat with aSession in sessions of aTab\n"
+            f'        if tty of aSession is "{tty}" then\n'
+            "          select aTab\n"
+            "          select aWindow\n"
+            "        end if\n"
+            "      end repeat\n"
+            "    end repeat\n"
+            "  end repeat\n"
+            "end tell"
+        )
+    else:
+        # Terminal.app
+        return (
+            'tell application "Terminal"\n'
+            "  activate\n"
+            "  repeat with aWindow in windows\n"
+            "    repeat with aTab in tabs of aWindow\n"
+            f'      if tty of aTab is "{tty}" then\n'
+            "        set selected tab of aWindow to aTab\n"
+            "        set index of aWindow to 1\n"
+            "      end if\n"
+            "    end repeat\n"
+            "  end repeat\n"
+            "end tell"
+        )
+
+
+def _send_notification(title: str, message: str, pid: str | None = None) -> None:
+    """Send macOS notification. Click activates the session's terminal tab."""
+    import shutil
+
+    terminal_notifier = shutil.which("terminal-notifier")
+
+    if terminal_notifier:
+        cmd = [
+            terminal_notifier,
+            "-title", title,
+            "-message", message,
+            "-sound", "Glass",
+            "-group", f"dmt-{pid}" if pid else "dmt",
+        ]
+        # If we have a PID, add click-to-activate behavior
+        if pid:
+            tty = _get_tty_for_pid(pid)
+            if tty:
+                script = _build_activate_terminal_script(tty)
+                cmd.extend(["-execute", f'osascript -e \'{script}\''])
+            else:
+                # Fallback: just activate the terminal app
+                import os
+                term = os.environ.get("TERM_PROGRAM", "")
+                bundle_id = (
+                    "com.googlecode.iterm2" if "iTerm" in term
+                    else "com.apple.Terminal"
+                )
+                cmd.extend(["-activate", bundle_id])
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    else:
+        # Fallback: plain osascript (no click action)
+        script = (
+            f'display notification "{message}" '
+            f'with title "{title}" sound name "Glass"'
+        )
+        try:
+            subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 def _get_next_tasks(project_name: str | None = None) -> list[str]:
@@ -897,6 +1015,18 @@ def watch(
         None, "--project", "-p",
         help="Only watch sessions for this project.",
     ),
+    tail: bool = typer.Option(
+        False, "--tail", "-t",
+        help="Print live log activity (user messages + tool calls) as they arrive.",
+    ),
+    web: bool = typer.Option(
+        False, "--web", "-w",
+        help="Also launch the web dashboard (default port 7317).",
+    ),
+    web_port: int = typer.Option(
+        7317, "--web-port",
+        help="Port for the web dashboard (used with --web).",
+    ),
 ):
     """Watch sessions and notify with next tasks when idle.
 
@@ -907,28 +1037,110 @@ def watch(
     # Init watch log
     log_path = _init_watch_log()
 
-    console.print(
-        Panel(
-            f"[bold]Watching sessions[/bold] "
-            f"(poll: {interval}s, idle: {idle_threshold}s)\n"
-            f"Log: {log_path}\n"
-            f"Press [bold]Ctrl+C[/bold] to stop.",
-            title="dmt sessions watch",
-            border_style="blue",
-        )
-    )
+    # Launch web dashboard in background thread if requested
+    if web:
+        import threading
 
+        import uvicorn
+
+        def _run_web():
+            uvicorn.run(
+                "do_my_tasks.web.app:app",
+                host="127.0.0.1",
+                port=web_port,
+                log_level="warning",
+            )
+
+        web_thread = threading.Thread(target=_run_web, daemon=True)
+        web_thread.start()
+
+        # Open browser after a short delay
+        import webbrowser
+
+        def _open_browser():
+            time.sleep(1.5)
+            webbrowser.open(f"http://127.0.0.1:{web_port}")
+
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+    console.clear()
     _watch_log(f"Watch started (poll: {interval}s, idle: {idle_threshold}s)")
     if project:
         _watch_log(f"Filtering project: {project}")
+    if web:
+        _watch_log(f"Web: http://127.0.0.1:{web_port}")
+
+    # ── info panel text (rebuilt each iteration when using Live) ──────────────
+    def _build_info_text(session_statuses: list[str]) -> str:
+        lines = [
+            f"[bold]Watching sessions[/bold] "
+            f"(poll: [cyan]{interval}s[/cyan], idle: [cyan]{idle_threshold}s[/cyan])",
+        ]
+        if web:
+            lines.append(f"Web: [link]http://127.0.0.1:{web_port}[/link]")
+        lines.append(f"Log: [dim]{log_path}[/dim]")
+        if session_statuses:
+            lines.append("")
+            lines.extend(session_statuses)
+        lines.append("")
+        lines.append("Press [bold]Ctrl+C[/bold] to stop.")
+        return "\n".join(lines)
 
     # Track state per log file: {path: {size, last_ts, notified}}
     tracked: dict[str, dict] = {}
     # Track which PIDs we've resolved cwd for
     pid_cwd_cache: dict[str, str] = {}
+    # Track tail read offset per log file (byte position)
+    tail_offsets: dict[str, int] = {}
+    # Rolling tail buffer (markup strings) used with Live display
+    tail_buffer: list[str] = []
+    MAX_TAIL_LINES = 40
     last_heartbeat = time.time()
 
-    try:
+    # ── Live display builder ──────────────────────────────────────────────────
+    def _build_live(session_statuses: list[str]) -> Layout:
+        info_text = _build_info_text(session_statuses)
+        # Fixed height: base lines + 1 per session + borders
+        info_height = info_text.count("\n") + 3
+
+        tail_content = "\n".join(tail_buffer[-MAX_TAIL_LINES:]) if tail_buffer \
+            else "[dim]Waiting for activity…[/dim]"
+
+        layout = Layout()
+        layout.split_column(
+            Layout(
+                Panel(info_text, title="dmt sessions watch", border_style="blue"),
+                name="info",
+                size=info_height,
+            ),
+            Layout(
+                Panel(Text.from_markup(tail_content), title="[dim]Live Log[/dim]", border_style="dim"),
+                name="tail",
+            ),
+        )
+        return layout
+
+    # ── session status lines for info panel ───────────────────────────────────
+    STATUS_LINE_EMOJI = {"idle": "⏸", "working": "🔄", "permission": "⚠️", "waiting": "💤"}
+
+    def _session_status_lines(pid_cwd_cache: dict, pid_logs: dict, processes: list) -> list[str]:
+        lines = []
+        for proc in processes:
+            pid = proc["pid"]
+            cwd = pid_cwd_cache.get(pid)
+            if not cwd:
+                continue
+            proj = _get_project_name(cwd)
+            lp, _ = pid_logs.get(pid, (None, None))
+            st = _get_session_state(lp).get("status", "waiting") if lp else "waiting"
+            emoji = STATUS_LINE_EMOJI.get(st, "💤")
+            lines.append(f"  {emoji} [cyan]{proj}[/cyan] [dim](PID {pid})[/dim] — [dim]{st}[/dim]")
+        return lines
+
+    # ── main loop ─────────────────────────────────────────────────────────────
+    def _run_loop(live: Live | None) -> None:
+        nonlocal last_heartbeat
+
         while True:
             try:
                 processes = _find_claude_processes()
@@ -937,7 +1149,6 @@ def watch(
                 time.sleep(interval)
                 continue
 
-            # Resolve cwds for new PIDs
             for proc in processes:
                 pid = proc["pid"]
                 if pid not in pid_cwd_cache:
@@ -948,7 +1159,6 @@ def watch(
                     except Exception as e:
                         _watch_log_error(f"cwd lookup for PID {pid}", e)
 
-            # Match PIDs to logs (handles same-project dedup)
             pid_logs = _match_pids_to_logs(processes, pid_cwd_cache)
 
             for proc in processes:
@@ -963,27 +1173,51 @@ def watch(
                     if project and proj_name != project:
                         continue
 
-                    log_path, _ = pid_logs.get(pid, (None, None))
-                    if not log_path:
+                    log_path_proc, _ = pid_logs.get(pid, (None, None))
+                    if not log_path_proc:
                         continue
 
-                    log_key = str(log_path)
-                    state = _get_session_state(log_path)
+                    log_key = str(log_path_proc)
+                    state = _get_session_state(log_path_proc)
                     prev = tracked.get(log_key)
+
+                    # --tail: read new log entries
+                    if tail:
+                        if log_key not in tail_offsets:
+                            try:
+                                tail_offsets[log_key] = log_path_proc.stat().st_size
+                            except OSError:
+                                tail_offsets[log_key] = 0
+                        else:
+                            new_lines, new_offset = _read_new_lines(
+                                log_path_proc, tail_offsets[log_key]
+                            )
+                            tail_offsets[log_key] = new_offset
+                            for raw in new_lines:
+                                raw = raw.strip()
+                                if not raw:
+                                    continue
+                                try:
+                                    entry = json.loads(raw)
+                                    formatted = _format_tail_entry(entry, proj_name)
+                                    if live is not None:
+                                        tail_buffer.extend(formatted)
+                                    else:
+                                        for line in formatted:
+                                            console.print(Text.from_markup(line))
+                                except json.JSONDecodeError:
+                                    pass
 
                     now = time.time()
 
                     if prev is None:
-                        # First observation
                         tracked[log_key] = {
                             "size": state["file_size"],
                             "last_change": now,
                             "notified": False,
                             "project": proj_name,
                             "pid": pid,
-                            "last_user_msg": state[
-                                "last_user_msg"
-                            ],
+                            "last_user_msg": state["last_user_msg"],
                             "tools": state["tools"],
                         }
                         _watch_log(
@@ -992,23 +1226,16 @@ def watch(
                         )
                         continue
 
-                    # Check if file changed
                     if state["file_size"] != prev["size"]:
                         prev["size"] = state["file_size"]
                         prev["last_change"] = now
                         prev["notified"] = False
                         prev["perm_notified"] = False
-                        prev["last_user_msg"] = state[
-                            "last_user_msg"
-                        ]
+                        prev["last_user_msg"] = state["last_user_msg"]
                         prev["tools"] = state["tools"]
-                        prev["files_modified"] = state[
-                            "files_modified"
-                        ]
-                        prev["commands_run"] = state[
-                            "commands_run"
-                        ]
-                        active_msg = (state.get('last_user_msg') or '')[:50]
+                        prev["files_modified"] = state["files_modified"]
+                        prev["commands_run"] = state["commands_run"]
+                        active_msg = (state.get("last_user_msg") or "")[:50]
                         _watch_log(
                             f"Active: {proj_name} (PID {pid}) "
                             f"status={state.get('status', '?')}"
@@ -1016,29 +1243,23 @@ def watch(
                         )
                         continue
 
-                    # File unchanged - check if idle long enough
                     idle_secs = now - prev["last_change"]
-                    is_idle = (
-                        idle_secs >= idle_threshold
-                        and state["status"] == "idle"
-                    )
+                    is_idle = idle_secs >= idle_threshold and state["status"] == "idle"
 
                     if is_idle and not prev["notified"]:
                         prev["notified"] = True
                         idle_dur = _format_idle_duration(idle_secs)
-                        idle_msg = (prev.get('last_user_msg') or '')[:50]
+                        idle_msg = (prev.get("last_user_msg") or "")[:50]
                         _watch_log(
                             f"Idle: {proj_name} (PID {pid}) "
-                            f"status={state.get('status', '?')} "
-                            f"idle={idle_dur}"
+                            f"status={state.get('status', '?')} idle={idle_dur}"
                             + (f" msg=\"{idle_msg}\"" if idle_msg else "")
                         )
                         _handle_idle_session(
-                            proj_name, pid, prev, state,
-                            notify,
+                            proj_name, pid, prev, state, notify,
+                            tail_buffer=tail_buffer if live is not None else None,
                         )
 
-                    # Also notify on permission-needed state
                     needs_perm = (
                         idle_secs >= idle_threshold
                         and state["status"] == "permission"
@@ -1049,41 +1270,31 @@ def watch(
                         pending_tool = state.get("tools", ["?"])[-1]
                         _watch_log(
                             f"Permission: {proj_name} (PID {pid}) "
-                            f"status={state.get('status', '?')} "
-                            f"tool={pending_tool}"
+                            f"status={state.get('status', '?')} tool={pending_tool}"
                         )
                         _handle_permission_session(
                             proj_name, pid, state, notify,
+                            tail_buffer=tail_buffer if live is not None else None,
                         )
 
                 except Exception as e:
-                    _watch_log_error(
-                        f"PID {pid} processing failed", e
-                    )
+                    _watch_log_error(f"PID {pid} processing failed", e)
 
-            # Clean up dead PIDs from cache
+            # Clean up dead PIDs
             live_pids = {p["pid"] for p in processes}
-            dead = [
-                p for p in pid_cwd_cache
-                if p not in live_pids
-            ]
-            for p in dead:
+            for p in [p for p in pid_cwd_cache if p not in live_pids]:
                 del pid_cwd_cache[p]
 
-            # Heartbeat every 60 seconds
+            # Heartbeat
             if time.time() - last_heartbeat >= 60:
                 last_heartbeat = time.time()
                 counts: dict[str, int] = {}
                 for t in tracked.values():
                     idle = time.time() - t["last_change"]
-                    if idle < idle_threshold:
-                        s = "active"
-                    elif t.get("perm_notified"):
-                        s = "permission"
-                    elif t.get("notified"):
-                        s = "idle"
-                    else:
-                        s = "waiting"
+                    s = "active" if idle < idle_threshold else (
+                        "permission" if t.get("perm_notified") else
+                        "idle" if t.get("notified") else "waiting"
+                    )
                     counts[s] = counts.get(s, 0) + 1
                 parts = [
                     f"{counts.get(s, 0)} {s}"
@@ -1095,7 +1306,31 @@ def watch(
                     f"({', '.join(parts) or 'none tracked'})"
                 )
 
+            # Update Live display
+            if live is not None:
+                status_lines = _session_status_lines(pid_cwd_cache, pid_logs, processes)
+                live.update(_build_live(status_lines))
+
             time.sleep(interval)
+
+    try:
+        if tail:
+            with Live(
+                _build_live([]),
+                console=console,
+                refresh_per_second=2,
+                screen=True,
+            ) as live:
+                _run_loop(live)
+        else:
+            console.print(
+                Panel(
+                    _build_info_text([]),
+                    title="dmt sessions watch",
+                    border_style="blue",
+                )
+            )
+            _run_loop(live=None)
 
     except KeyboardInterrupt:
         _watch_log("Watch stopped by user (Ctrl+C)")
@@ -1142,19 +1377,18 @@ def _handle_idle_session(
     prev: dict,
     state: dict,
     send_notify: bool,
+    tail_buffer: list[str] | None = None,
 ) -> None:
     """Handle a session that has become idle."""
     now_str = datetime.now().strftime("%H:%M:%S")
     emoji = STATUS_EMOJI.get(state.get("status", "idle"), "✅")
 
-    # What did it just finish?
     user_msg = prev.get("last_user_msg") or ""
     if user_msg:
         user_msg = _truncate_display(user_msg, 40)
 
     summary = _build_work_summary(prev, state)
 
-    # Build body lines
     body_lines = []
     body_lines.append(
         f"{emoji} [bold green]완료[/bold green] "
@@ -1166,39 +1400,34 @@ def _handle_idle_session(
     if summary:
         body_lines.append(f"[dim]작업:[/dim] {summary}")
 
-    # Get next tasks
-    next_tasks = _get_next_tasks(project)
-    if next_tasks:
-        body_lines.append("")
-        body_lines.append("[dim]다음 태스크:[/dim]")
-        for i, t in enumerate(next_tasks):
-            prefix = "→" if i == 0 else " "
-            body_lines.append(f"  {prefix} {t}")
-    else:
-        body_lines.append("[dim]다음 태스크 없음[/dim]")
-
-    console.print()
-    console.print(
-        Panel(
-            "\n".join(body_lines),
-            title=f"[bold]{now_str}[/bold]",
-            border_style="green",
+    if tail_buffer is not None:
+        tail_buffer.append("")
+        tail_buffer.append(
+            f"[dim]{'─' * 50}[/dim] [bold]{now_str}[/bold]"
         )
-    )
+        tail_buffer.extend(body_lines)
+        tail_buffer.append(f"[dim]{'─' * 50}[/dim]")
+    else:
+        console.print()
+        console.print(
+            Panel(
+                "\n".join(body_lines),
+                title=f"[bold]{now_str}[/bold]",
+                border_style="green",
+            )
+        )
 
-    # OS notification
     if send_notify:
         notif_title = f"{emoji} DMT — {project}"
         notif_parts = []
         if user_msg:
-            notif_parts.append(f"완료: {user_msg}")
+            notif_parts.append(user_msg)
         if summary:
             notif_parts.append(summary)
-        if next_tasks:
-            notif_parts.append(f"Next: {next_tasks[0]}")
         _send_notification(
             notif_title,
             "\\n".join(notif_parts) if notif_parts else "작업 완료",
+            pid=pid,
         )
 
 
@@ -1207,12 +1436,12 @@ def _handle_permission_session(
     pid: str,
     state: dict,
     send_notify: bool,
+    tail_buffer: list[str] | None = None,
 ) -> None:
     """Handle a session waiting for user permission."""
     now_str = datetime.now().strftime("%H:%M:%S")
     emoji = STATUS_EMOJI["permission"]
 
-    # Which tool needs permission?
     tools = state.get("tools", [])
     pending_tool = tools[-1] if tools else "unknown"
 
@@ -1223,20 +1452,144 @@ def _handle_permission_session(
         f"[dim]대기 중:[/dim] {pending_tool} 실행 승인 대기",
     ]
 
-    console.print()
-    console.print(
-        Panel(
-            "\n".join(body_lines),
-            title=f"[bold]{now_str}[/bold]",
-            border_style="yellow",
+    if tail_buffer is not None:
+        tail_buffer.append("")
+        tail_buffer.append(
+            f"[dim]{'─' * 50}[/dim] [bold]{now_str}[/bold]"
         )
-    )
+        tail_buffer.extend(body_lines)
+        tail_buffer.append(f"[dim]{'─' * 50}[/dim]")
+    else:
+        console.print()
+        console.print(
+            Panel(
+                "\n".join(body_lines),
+                title=f"[bold]{now_str}[/bold]",
+                border_style="yellow",
+            )
+        )
 
     if send_notify:
         _send_notification(
             f"{emoji} DMT — {project}",
             f"권한 필요: {pending_tool} 승인 대기 중",
+            pid=pid,
         )
+
+
+def _read_new_lines(log_path: Path, offset: int) -> tuple[list[str], int]:
+    """Read new lines from log_path starting at byte offset.
+
+    Returns (new_lines, new_offset).
+    """
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            end = f.tell()
+            if end <= offset:
+                return [], offset
+            f.seek(offset)
+            data = f.read(end - offset).decode("utf-8", errors="replace")
+        lines = [l for l in data.splitlines() if l.strip()]
+        return lines, end
+    except OSError:
+        return [], offset
+
+
+_TOOL_KEY_FIELDS = {
+    "Bash": ("command",),
+    "Read": ("file_path",),
+    "Write": ("file_path",),
+    "Edit": ("file_path",),
+    "Glob": ("pattern",),
+    "Grep": ("pattern",),
+    "WebFetch": ("url",),
+    "WebSearch": ("query",),
+    "Agent": ("description",),
+    "NotebookEdit": ("notebook_path",),
+}
+
+_TOOL_COLORS = {
+    "Bash": "yellow",
+    "Read": "cyan",
+    "Write": "green",
+    "Edit": "green",
+    "Glob": "cyan",
+    "Grep": "cyan",
+    "WebFetch": "magenta",
+    "WebSearch": "magenta",
+    "Agent": "blue",
+}
+
+
+def _format_tool_input(name: str, inp: dict) -> str:
+    """Extract the most meaningful field from tool input."""
+    keys = _TOOL_KEY_FIELDS.get(name, ())
+    for k in keys:
+        v = inp.get(k, "")
+        if v:
+            v = str(v)
+            # First line only, truncated
+            v = v.split("\n")[0]
+            if len(v) > 60:
+                v = v[:57] + "…"
+            return v
+    return ""
+
+
+def _format_tail_entry(entry: dict, project: str) -> list[str]:
+    """Format a single JSONL log entry as rich markup lines (may be empty)."""
+    msg_type = entry.get("type")
+    ts_str = entry.get("timestamp", "")
+    try:
+        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        ts_display = ts.astimezone().strftime("%H:%M:%S")
+    except (ValueError, AttributeError):
+        ts_display = "--:--:--"
+
+    prefix = f"[dim]{ts_display}[/dim] [bold cyan]{project}[/bold cyan]"
+    lines: list[str] = []
+
+    if msg_type == "user":
+        if entry.get("isMeta"):
+            return lines
+        content = entry.get("message", {}).get("content", "")
+        text = _extract_user_text(content)
+        if not text:
+            return lines
+        if len(text) > 80:
+            text = text[:77] + "…"
+        lines.append(f"{prefix} [bold white]▶[/bold white] {text}")
+
+    elif msg_type == "assistant":
+        message = entry.get("message", {})
+        content = message.get("content", [])
+        stop_reason = message.get("stop_reason")
+
+        if isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "tool_use":
+                    name = block.get("name", "?")
+                    inp = block.get("input", {})
+                    color = _TOOL_COLORS.get(name, "white")
+                    detail = _format_tool_input(name, inp)
+                    detail_str = f" [dim]{detail}[/dim]" if detail else ""
+                    lines.append(f"{prefix}   [{color}]{name}[/{color}]{detail_str}")
+                elif btype == "text":
+                    text = block.get("text", "").strip()
+                    if text:
+                        first_line = text.split("\n")[0]
+                        if len(first_line) > 80:
+                            first_line = first_line[:77] + "…"
+                        lines.append(f"{prefix} [dim italic]{first_line}[/dim italic]")
+
+        if stop_reason == "end_turn":
+            lines.append(f"{prefix} [dim]↩ done[/dim]")
+
+    return lines
 
 
 def _format_idle_duration(seconds: float) -> str:
