@@ -218,7 +218,30 @@ class DMTApp(rumps.App):
         rumps.quit_application()
 
 
+def _kill_existing_instances() -> None:
+    """현재 프로세스를 제외한 다른 menubar 인스턴스를 종료한다."""
+    import os
+    import signal
+
+    current_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "do_my_tasks.menubar.app"],
+            capture_output=True, text=True,
+        )
+        for line in result.stdout.strip().splitlines():
+            pid = int(line.strip())
+            if pid != current_pid:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+    except Exception:
+        pass
+
+
 def main():
+    _kill_existing_instances()
     DMTApp().run()
 
 
