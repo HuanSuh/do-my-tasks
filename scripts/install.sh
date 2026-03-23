@@ -227,16 +227,16 @@ fi
 
 echo
 echo "╔════════════════════════════════════════════╗"
-echo "║          DMT installed successfully!       ║"
+echo "║       DoMyTasks installed successfully!    ║"
 echo "╚════════════════════════════════════════════╝"
 echo
 echo "  App:        $APP_DEST"
 echo "  Dashboard:  http://127.0.0.1:${DMT_PORT}"
 echo "  Auto-start: enabled (login)"
 echo
-echo "  Starting DMT now..."
+echo "  Starting DoMyTasks now..."
 open "$APP_DEST"
 echo
-echo "  ◆ Look for the ◆ icon in your menu bar."
+echo "  Look for the D icon in your menu bar."
 echo "  Run 'dmt config discover' to register your projects."
 echo
