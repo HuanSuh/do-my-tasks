@@ -22,6 +22,7 @@ WATCH_INTERVALS = [5, 10, 30, 60]  # seconds
 SETTINGS_PATH = Path.home() / ".config" / "do_my_tasks" / "menubar.json"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/HuanSuh/do-my-tasks/releases/latest"
 INSTALL_URL = "git+https://github.com/HuanSuh/do-my-tasks.git"
+UPDATE_SIGNAL_PATH = Path("/tmp/dmt_updated_to")
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:
@@ -120,6 +121,12 @@ class DMTApp(rumps.App):
 
         # Start web server
         threading.Thread(target=self._start_web, daemon=True).start()
+
+        # 업데이트 후 재시작 시 완료 팝업
+        if UPDATE_SIGNAL_PATH.exists():
+            version = UPDATE_SIGNAL_PATH.read_text().strip()
+            UPDATE_SIGNAL_PATH.unlink(missing_ok=True)
+            rumps.Timer(lambda _: rumps.alert(f"Updated to v{version}", "DoMyTasks has been updated successfully."), 1).start()
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -248,7 +255,8 @@ class DMTApp(rumps.App):
             if "tag_name" not in data:
                 raise RuntimeError("No releases found on GitHub")
             latest = data["tag_name"].lstrip("v")
-            self._update_pending = {"ok": True, "current": current, "latest": latest}
+            tarball_url = data.get("tarball_url", INSTALL_URL)
+            self._update_pending = {"ok": True, "current": current, "latest": latest, "tarball_url": tarball_url}
         except Exception as e:
             self._update_pending = {"ok": False, "error": str(e)}
 
@@ -273,55 +281,24 @@ class DMTApp(rumps.App):
                 cancel="Later",
             )
             if resp == 1:
-                threading.Thread(target=self._do_update, args=(latest,), daemon=True).start()
+                threading.Thread(target=self._do_update, args=(latest, result["tarball_url"]), daemon=True).start()
         else:
             rumps.alert(f"You're up to date (v{current})")
 
-    def _do_update(self, latest: str):
-        self._update_item.title = "Updating…"
-        self._install_pending: dict | None = None
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--user", "--force-reinstall",
-                 "--quiet", INSTALL_URL],
-                check=True, capture_output=True, timeout=180,
-            )
-            self._install_pending = {"ok": True, "latest": latest}
-        except subprocess.TimeoutExpired:
-            self._install_pending = {"ok": False, "error": "Update timed out after 3 minutes."}
-        except subprocess.CalledProcessError as e:
-            err = e.stderr.decode(errors="replace") if e.stderr else str(e)
-            self._install_pending = {"ok": False, "error": err}
-        t = rumps.Timer(self._on_install_timer, 0.3)
-        t.start()
-
-    def _on_install_timer(self, timer):
-        if self._install_pending is None:
-            return
-        timer.stop()
-        result = self._install_pending
-        self._install_pending = None
-        self._update_item.title = "Check for Updates…"
-
-        if not result["ok"]:
-            rumps.alert("Update failed", result["error"])
-            return
-
-        resp = rumps.alert(
-            title=f"v{result['latest']} installed",
-            message="Restart the app to apply the new version.",
-            ok="Restart Now",
-            cancel="Later",
+    def _do_update(self, latest: str, tarball_url: str = INSTALL_URL):
+        # 앱을 종료하고 외부 스크립트가 install → relaunch 처리
+        relaunch_cmd = f"{sys.executable} -c 'from do_my_tasks.menubar.app import main; main()'"
+        UPDATE_SIGNAL_PATH.write_text(latest)
+        script = (
+            f"sleep 2 && "
+            f"{sys.executable} -m pip install --user --force-reinstall --quiet {tarball_url} && "
+            f"nohup {relaunch_cmd} &>/dev/null &"
         )
-        if resp == 1:
-            self._restart()
-
-    def _restart(self):
+        subprocess.Popen(["bash", "-c", script])
         self._stop_watch()
         if self._web_proc:
             self._web_proc.terminate()
-        import os
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        rumps.quit_application()
 
     # ── Quit ──────────────────────────────────────────────────────────────────
 
