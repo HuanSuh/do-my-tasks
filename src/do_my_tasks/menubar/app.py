@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
-import sys
 import threading
 import time
 import webbrowser
@@ -13,10 +13,11 @@ import rumps
 
 DASHBOARD_URL = "http://127.0.0.1:7317"
 DMT_PORT = 7317
+ICON_TITLE = "◆"
+ICON_WATCH = "◆●"
 
-# SVG-sourced monochrome icon embedded as PNG bytes (fallback: text title)
-# Using rumps title-only mode keeps things simple without an asset file.
-ICON_TITLE = "◆"  # shown in menu bar if no icon file
+WATCH_INTERVALS = [5, 10, 30, 60]  # seconds
+SETTINGS_PATH = Path.home() / ".config" / "do_my_tasks" / "menubar.json"
 
 
 def _find_dmt() -> str:
@@ -25,11 +26,25 @@ def _find_dmt() -> str:
     path = shutil.which("dmt")
     if path:
         return path
-    # Common pipx location
     pipx_bin = Path.home() / ".local" / "bin" / "dmt"
     if pipx_bin.exists():
         return str(pipx_bin)
     raise RuntimeError("dmt executable not found. Is it installed?")
+
+
+def _load_settings() -> dict:
+    try:
+        return json.loads(SETTINGS_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def _save_settings(settings: dict) -> None:
+    try:
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
+    except Exception:
+        pass
 
 
 class DMTApp(rumps.App):
@@ -39,27 +54,60 @@ class DMTApp(rumps.App):
         self._dmt = _find_dmt()
         self._web_proc: subprocess.Popen | None = None
         self._watch_proc: subprocess.Popen | None = None
+        self._settings = _load_settings()
 
-        # Build menu
-        self._watch_item = rumps.MenuItem("Session Watch: OFF", callback=self._toggle_watch)
+        # ── Menu items ────────────────────────────────────────────────────────
+
         self._dash_item = rumps.MenuItem("Open Dashboard", callback=self._open_dashboard)
+        self._watch_item = rumps.MenuItem("Session Watch: OFF", callback=self._toggle_watch)
+
+        # Notifications toggle (checkmark = enabled)
+        self._notify_item = rumps.MenuItem("Notifications", callback=self._toggle_notify)
+        self._notify_item.state = self._settings.get("notify", True)
+
+        # Poll interval submenu
+        self._interval_menu = rumps.MenuItem("Poll Interval")
+        self._interval_items: dict[int, rumps.MenuItem] = {}
+        for secs in WATCH_INTERVALS:
+            item = rumps.MenuItem(f"{secs}s", callback=self._set_interval)
+            self._interval_items[secs] = item
+            self._interval_menu.add(item)
+        self._sync_interval_checkmarks()
+
         self._quit_item = rumps.MenuItem("Quit DMT", callback=self._quit)
 
         self.menu = [
             self._dash_item,
-            None,  # separator
+            None,
             self._watch_item,
+            None,
+            self._notify_item,
+            self._interval_menu,
             None,
             self._quit_item,
         ]
 
-        # Start web server in background
+        # Start web server
         threading.Thread(target=self._start_web, daemon=True).start()
+
+    # ── Persistence ───────────────────────────────────────────────────────────
+
+    @property
+    def _interval(self) -> int:
+        return self._settings.get("interval", 10)
+
+    @property
+    def _notify(self) -> bool:
+        return self._settings.get("notify", True)
+
+    def _sync_interval_checkmarks(self):
+        current = self._interval
+        for secs, item in self._interval_items.items():
+            item.state = secs == current
 
     # ── Web server ────────────────────────────────────────────────────────────
 
     def _start_web(self):
-        """Start the web dashboard server; retry a few times if the port is busy."""
         for attempt in range(3):
             try:
                 self._web_proc = subprocess.Popen(
@@ -80,7 +128,7 @@ class DMTApp(rumps.App):
 
     # ── Session Watch ─────────────────────────────────────────────────────────
 
-    def _toggle_watch(self, sender):
+    def _toggle_watch(self, _):
         if self._watch_running():
             self._stop_watch()
         else:
@@ -90,9 +138,12 @@ class DMTApp(rumps.App):
         return self._watch_proc is not None and self._watch_proc.poll() is None
 
     def _start_watch(self):
+        cmd = [self._dmt, "sessions", "watch", "--interval", str(self._interval)]
+        if not self._notify:
+            cmd.append("--no-notify")
         try:
             self._watch_proc = subprocess.Popen(
-                [self._dmt, "sessions", "watch"],
+                cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -100,7 +151,7 @@ class DMTApp(rumps.App):
             rumps.alert("DMT", f"Failed to start session watch: {e}")
             return
         self._watch_item.title = "Session Watch: ON ✓"
-        self.title = "◆●"
+        self.title = ICON_WATCH
 
     def _stop_watch(self):
         if self._watch_proc:
@@ -108,6 +159,33 @@ class DMTApp(rumps.App):
             self._watch_proc = None
         self._watch_item.title = "Session Watch: OFF"
         self.title = ICON_TITLE
+
+    def _restart_watch_if_running(self):
+        """Restart watch so new settings take effect immediately."""
+        if self._watch_running():
+            self._stop_watch()
+            self._start_watch()
+
+    # ── Notifications toggle ──────────────────────────────────────────────────
+
+    def _toggle_notify(self, sender):
+        self._settings["notify"] = not self._notify
+        sender.state = self._settings["notify"]
+        _save_settings(self._settings)
+        self._restart_watch_if_running()
+
+    # ── Poll interval ─────────────────────────────────────────────────────────
+
+    def _set_interval(self, sender):
+        # Find selected interval from title (e.g. "10s" → 10)
+        try:
+            secs = int(sender.title.rstrip("s"))
+        except ValueError:
+            return
+        self._settings["interval"] = secs
+        _save_settings(self._settings)
+        self._sync_interval_checkmarks()
+        self._restart_watch_if_running()
 
     # ── Quit ──────────────────────────────────────────────────────────────────
 
