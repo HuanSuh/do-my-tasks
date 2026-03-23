@@ -216,8 +216,7 @@ async def dashboard(request: Request, date: str | None = None):
     next_date = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
     is_today = date_str == _today()
 
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "dashboard.html", {
         "date": date_str,
         "prev_date": prev_date,
         "next_date": next_date,
@@ -258,8 +257,7 @@ async def tasks_page(
     next_date = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
     is_today = date_str == _today()
 
-    return templates.TemplateResponse("tasks.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "tasks.html", {
         "date": date_str,
         "prev_date": prev_date,
         "next_date": next_date,
@@ -344,8 +342,7 @@ async def sessions_page(request: Request, date: str | None = None):
     next_date = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
     is_today = date_str == _today()
 
-    return templates.TemplateResponse("sessions.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "sessions.html", {
         "date": date_str,
         "prev_date": prev_date,
         "next_date": next_date,
@@ -376,8 +373,7 @@ async def activity_page(request: Request, date: str | None = None):
     for c in commits:
         by_project.setdefault(c.project_name, []).append(c)
 
-    return templates.TemplateResponse("activity.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "activity.html", {
         "date": date_str,
         "prev_date": prev_date,
         "next_date": next_date,
@@ -437,8 +433,7 @@ async def projects_page(request: Request):
 
     project_stats.sort(key=lambda x: x["last_active"] or datetime.min, reverse=True)
 
-    return templates.TemplateResponse("projects.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "projects.html", {
         "projects": project_stats,
         "active_page": "projects",
     })
@@ -517,8 +512,7 @@ async def edit_project(
 
 @app.get("/guide", response_class=HTMLResponse)
 async def guide_page(request: Request):
-    return templates.TemplateResponse("guide.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "guide.html", {
         "active_page": "guide",
     })
 
