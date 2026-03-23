@@ -124,6 +124,9 @@ success "App installed → $APP_DEST"
 
 step "Configuring auto-start"
 
+# Resolve pip --user scripts dir (e.g. ~/Library/Python/3.11/bin)
+USER_SCRIPTS=$($PYTHON -c "import sysconfig; print(sysconfig.get_path('scripts','posix_user'))" 2>/dev/null || echo "")
+
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$LAUNCH_AGENT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -143,7 +146,7 @@ cat > "$LAUNCH_AGENT_PLIST" <<PLIST
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${HOME}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>${USER_SCRIPTS}:${HOME}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
 </dict>
 </plist>

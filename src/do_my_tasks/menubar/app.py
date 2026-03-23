@@ -21,15 +21,35 @@ SETTINGS_PATH = Path.home() / ".config" / "do_my_tasks" / "menubar.json"
 
 
 def _find_dmt() -> str:
-    """Locate the dmt executable (handles pipx venvs and direct installs)."""
+    """Locate the dmt executable (handles pipx venvs, pip --user, and direct installs)."""
     import shutil
+    import sys
+    import sysconfig
+
+    # 1. PATH lookup (works when launched from terminal or correctly configured LaunchAgent)
     path = shutil.which("dmt")
     if path:
         return path
-    pipx_bin = Path.home() / ".local" / "bin" / "dmt"
-    if pipx_bin.exists():
-        return str(pipx_bin)
-    raise RuntimeError("dmt executable not found. Is it installed?")
+
+    candidates = [
+        # 2. Same bin dir as the running Python (venv / pip --user same interpreter)
+        Path(sys.executable).parent / "dmt",
+        # 3. pipx default location
+        Path.home() / ".local" / "bin" / "dmt",
+        # 4. macOS pip --user scripts dir (e.g. ~/Library/Python/3.11/bin/dmt)
+        Path(sysconfig.get_path("scripts", "posix_user") or "") / "dmt",
+        # 5. Homebrew Python user scripts
+        Path.home() / "Library" / "Python" /
+        f"{sys.version_info.major}.{sys.version_info.minor}" / "bin" / "dmt",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    raise RuntimeError(
+        "dmt executable not found. "
+        f"Searched: {', '.join(str(c) for c in candidates)}"
+    )
 
 
 def _load_settings() -> dict:
