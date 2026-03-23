@@ -35,6 +35,18 @@ venv/
 # Runtime data
 data/
 
+# SQLite databases (runtime data, should never be committed)
+*.db
+*.sqlite
+*.sqlite3
+
+# Application logs
+*.log
+logs/
+
+# DMT runtime files (generated at runtime, may contain session metadata)
+.dmt/
+
 # Testing
 .pytest_cache/
 .coverage
