@@ -20,18 +20,6 @@ Automatically collects Claude Code session logs and Git commits, tracks tasks wi
 
 ---
 
-## Screenshots
-
-| Dashboard | Sessions |
-|-----------|----------|
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Sessions](docs/screenshots/sessions.png) |
-
-| Projects | Activity |
-|----------|----------|
-| ![Projects](docs/screenshots/projects.png) | ![Activity](docs/screenshots/activity.png) |
-
----
-
 ## Overview
 
 DMT integrates with Claude Code's session lifecycle to give you a clear picture of what you worked on, what got committed, and what still needs to be done. It runs in the background, auto-collects on session end, and surfaces everything through a clean web UI or terminal commands.
