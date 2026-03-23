@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "do-my-tasks"
-version = "0.3.0"
+version = "0.4.0"
 description = "Intelligent daily activity tracker & task manager for Claude Code power users"
 authors = ["huansuh"]
 readme = "README.md"

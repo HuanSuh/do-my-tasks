@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import threading
 import time
+import urllib.request
 import webbrowser
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import rumps
@@ -18,6 +21,12 @@ ICON_WATCH_PATH = str(Path(__file__).parent / "icon_watch.png")
 
 WATCH_INTERVALS = [5, 10, 30, 60]  # seconds
 SETTINGS_PATH = Path.home() / ".config" / "do_my_tasks" / "menubar.json"
+GITHUB_RELEASES_URL = "https://api.github.com/repos/HuanSuh/do-my-tasks/releases/latest"
+INSTALL_URL = "git+https://github.com/HuanSuh/do-my-tasks.git"
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in v.lstrip("v").split("."))
 
 
 def _find_dmt() -> str:
@@ -94,6 +103,7 @@ class DMTApp(rumps.App):
             self._interval_menu.add(item)
         self._sync_interval_checkmarks()
 
+        self._update_item = rumps.MenuItem("Check for Updates…", callback=self._check_update)
         self._quit_item = rumps.MenuItem("Quit DMT", callback=self._quit)
 
         self.menu = [
@@ -103,6 +113,8 @@ class DMTApp(rumps.App):
             None,
             self._notify_item,
             self._interval_menu,
+            None,
+            self._update_item,
             None,
             self._quit_item,
         ]
@@ -208,6 +220,76 @@ class DMTApp(rumps.App):
         _save_settings(self._settings)
         self._sync_interval_checkmarks()
         self._restart_watch_if_running()
+
+    # ── Update ────────────────────────────────────────────────────────────────
+
+    def _check_update(self, _):
+        self._update_item.title = "Checking…"
+        threading.Thread(target=self._do_check_update, daemon=True).start()
+
+    def _do_check_update(self):
+        try:
+            current = pkg_version("do-my-tasks")
+        except Exception:
+            current = "0.0.0"
+
+        try:
+            req = urllib.request.Request(
+                GITHUB_RELEASES_URL,
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "DoMyTasks"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            latest = data["tag_name"].lstrip("v")
+        except Exception as e:
+            self._update_item.title = "Check for Updates…"
+            rumps.alert("Update check failed", str(e))
+            return
+
+        self._update_item.title = "Check for Updates…"
+
+        if _version_tuple(latest) > _version_tuple(current):
+            resp = rumps.alert(
+                title=f"v{latest} Available",
+                message=f"Current: v{current}  →  Latest: v{latest}\nWould you like to update now?",
+                ok="Update",
+                cancel="Later",
+            )
+            if resp == 1:
+                threading.Thread(target=self._do_update, args=(latest,), daemon=True).start()
+        else:
+            rumps.alert(f"You're up to date (v{current})")
+
+    def _do_update(self, latest: str):
+        self._update_item.title = "Updating…"
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--user", "--force-reinstall",
+                 "--quiet", INSTALL_URL],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            self._update_item.title = "Check for Updates…"
+            rumps.alert("Update failed", e.stderr.decode(errors="replace") if e.stderr else str(e))
+            return
+
+        self._update_item.title = "Check for Updates…"
+        resp = rumps.alert(
+            title=f"v{latest} installed",
+            message="Restart the app to apply the new version.",
+            ok="Restart Now",
+            cancel="Later",
+        )
+        if resp == 1:
+            self._restart()
+
+    def _restart(self):
+        self._stop_watch()
+        if self._web_proc:
+            self._web_proc.terminate()
+        import os
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     # ── Quit ──────────────────────────────────────────────────────────────────
 
