@@ -46,35 +46,32 @@ success "pip found"
 
 step "Installing DMT"
 
-# Prefer pipx for isolated install; fall back to pip --user
+# Detect pipx (standalone command or python -m pipx)
+PIPX=""
 if command -v pipx &>/dev/null; then
-    info "Using pipx"
-    # Uninstall first if already present (to pick up updates)
-    pipx uninstall do-my-tasks 2>/dev/null || true
-    pipx install "${REPO}[menubar]"
-    DMT_BIN="$HOME/.local/bin/dmt"
+    PIPX="pipx"
 elif $PYTHON -m pipx --version &>/dev/null 2>&1; then
-    info "Using python -m pipx"
-    $PYTHON -m pipx uninstall do-my-tasks 2>/dev/null || true
-    $PYTHON -m pipx install "${REPO}[menubar]"
+    PIPX="$PYTHON -m pipx"
+fi
+
+if [[ -n "$PIPX" ]]; then
+    info "Using pipx"
+    # Uninstall first to pick up updates
+    $PIPX uninstall do-my-tasks 2>/dev/null || true
+    # Install base package, then inject rumps into the same venv
+    $PIPX install "${REPO}"
+    $PIPX inject do-my-tasks "rumps>=0.4.0"
     DMT_BIN="$HOME/.local/bin/dmt"
 else
     info "pipx not found — falling back to pip install --user"
-    $PYTHON -m pip install --quiet --user "${REPO}[menubar]"
+    $PYTHON -m pip install --quiet --user "${REPO}"
+    $PYTHON -m pip install --quiet --user "rumps>=0.4.0"
     DMT_BIN="$($PYTHON -m site --user-base)/bin/dmt"
 fi
 
 [[ -f "$DMT_BIN" ]] || DMT_BIN=$(command -v dmt 2>/dev/null || true)
 [[ -n "$DMT_BIN" ]] || error "dmt binary not found after install."
 success "dmt installed → $DMT_BIN"
-
-# Also install rumps into the same environment that dmt lives in
-VENV_PYTHON=$(dirname "$DMT_BIN")/../lib/python*/site-packages 2>/dev/null || true
-# rumps should already be installed via [menubar] extra — just verify
-if ! $PYTHON -c "import rumps" 2>/dev/null; then
-    info "Installing rumps separately"
-    $PYTHON -m pip install --quiet --user "rumps>=0.4.0"
-fi
 success "rumps ready"
 
 # ── build .app bundle ─────────────────────────────────────────────────────────
