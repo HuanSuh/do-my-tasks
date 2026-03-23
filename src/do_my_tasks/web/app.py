@@ -89,10 +89,10 @@ def _get_git_branch(cwd: str) -> str:
         return ""
 
 
-def get_live_sessions() -> list[dict]:
+def get_live_sessions() -> tuple[list[dict], list[dict]]:
     processes = _find_claude_processes()
     if not processes:
-        return []
+        return [], []
 
     pid_cwds: dict[str, str] = {}
     for proc in processes:
@@ -103,11 +103,28 @@ def get_live_sessions() -> list[dict]:
     pid_logs = _match_pids_to_logs(processes, pid_cwds)
 
     sessions = []
+    untracked = []
     for proc in processes:
         pid = proc["pid"]
         cwd = pid_cwds.get(pid)
         project = _get_project_name(cwd) if cwd else "unknown"
         log_path, _ = pid_logs.get(pid, (None, None))
+
+        elapsed = ""
+        if proc["started"]:
+            delta = datetime.now() - proc["started"]
+            elapsed = _fmt_minutes(float(int(delta.total_seconds() / 60)))
+
+        if not log_path:
+            untracked.append({
+                "pid": pid,
+                "cwd": cwd or "",
+                "started": proc["started"].strftime("%H:%M") if proc["started"] else "-",
+                "elapsed": elapsed,
+                "note": proc["note"],
+            })
+            continue
+
         state = _get_session_state(log_path) if log_path else {}
         status = state.get("status", "waiting")
 
@@ -135,7 +152,7 @@ def get_live_sessions() -> list[dict]:
             "commands_run": state.get("commands_run") or [],
             "last_ts": last_ts.strftime("%H:%M:%S") if last_ts else "",
         })
-    return sessions
+    return sessions, untracked
 
 
 # ─── routes ───────────────────────────────────────────────────────────────────
@@ -147,7 +164,7 @@ async def dashboard(request: Request, date: str | None = None):
     summarizer = Summarizer(sf)
     summary = summarizer.generate(date_str)
 
-    live_sessions = get_live_sessions()
+    live_sessions, untracked_sessions = get_live_sessions()
 
     # All active projects with last activity
     with UnitOfWork(sf) as uow:
@@ -314,7 +331,7 @@ async def sessions_page(request: Request, date: str | None = None):
     date_str = date or _today()
     sf = _get_session_factory()
 
-    live = get_live_sessions()
+    live, untracked = get_live_sessions()
 
     with UnitOfWork(sf) as uow:
         repo = SessionRepository(uow.session)
@@ -332,6 +349,7 @@ async def sessions_page(request: Request, date: str | None = None):
         "next_date": next_date,
         "is_today": is_today,
         "live_sessions": live,
+        "untracked_sessions": untracked,
         "session_rows": session_rows,
         "active_page": "sessions",
     })
@@ -506,4 +524,33 @@ async def guide_page(request: Request):
 @app.get("/api/live-sessions")
 async def api_live_sessions():
     """JSON endpoint for auto-refreshing live session data."""
-    return get_live_sessions()
+    sessions, untracked = get_live_sessions()
+    return {"sessions": sessions, "untracked": untracked}
+
+
+@app.post("/api/sessions/{pid}/kill")
+async def kill_session(pid: str):
+    """Send SIGTERM to a live session process."""
+    import os
+    import signal
+
+    # Only allow killing idle sessions
+    sessions, _ = get_live_sessions()
+    match = next((s for s in sessions if s["pid"] == pid), None)
+    if not match:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    status = match.get("status", "")
+    if status in ("working", "permission", "waiting"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot kill session with status '{status}'",
+        )
+
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+        return {"ok": True, "pid": pid}
+    except ProcessLookupError:
+        raise HTTPException(status_code=404, detail="Process already gone")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied")
