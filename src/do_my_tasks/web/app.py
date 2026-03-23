@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from datetime import datetime, timedelta, timezone
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ from do_my_tasks.storage.tables import CommitRow, SessionRow, TaskRow
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["app_version"] = pkg_version("do-my-tasks")
 
 app = FastAPI(title="DMT Dashboard", docs_url=None, redoc_url=None)
 
