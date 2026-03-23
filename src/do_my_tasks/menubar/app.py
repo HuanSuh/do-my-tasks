@@ -7,7 +7,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 import webbrowser
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -225,29 +224,47 @@ class DMTApp(rumps.App):
 
     def _check_update(self, _):
         self._update_item.title = "Checking…"
-        threading.Thread(target=self._do_check_update, daemon=True).start()
+        self._update_pending: dict | None = None
+        threading.Thread(target=self._fetch_update_info, daemon=True).start()
+        t = rumps.Timer(self._on_update_timer, 0.3)
+        t.start()
 
-    def _do_check_update(self):
+    def _fetch_update_info(self):
         try:
             current = pkg_version("do-my-tasks")
         except Exception:
             current = "0.0.0"
-
         try:
-            req = urllib.request.Request(
-                GITHUB_RELEASES_URL,
-                headers={"Accept": "application/vnd.github+json", "User-Agent": "DoMyTasks"},
+            proc = subprocess.run(
+                ["curl", "-s", "--max-time", "10",
+                 "-H", "Accept: application/vnd.github+json",
+                 "-H", "User-Agent: DoMyTasks",
+                 GITHUB_RELEASES_URL],
+                capture_output=True, text=True,
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
+            if proc.returncode != 0 or not proc.stdout.strip():
+                raise RuntimeError(f"Network error (curl exit {proc.returncode})")
+            data = json.loads(proc.stdout)
+            if "tag_name" not in data:
+                raise RuntimeError("No releases found on GitHub")
             latest = data["tag_name"].lstrip("v")
+            self._update_pending = {"ok": True, "current": current, "latest": latest}
         except Exception as e:
-            self._update_item.title = "Check for Updates…"
-            rumps.alert("Update check failed", str(e))
-            return
+            self._update_pending = {"ok": False, "error": str(e)}
 
+    def _on_update_timer(self, timer):
+        if self._update_pending is None:
+            return  # 아직 로딩 중
+        timer.stop()
+        result = self._update_pending
+        self._update_pending = None
         self._update_item.title = "Check for Updates…"
 
+        if not result["ok"]:
+            rumps.alert("Update check failed", result["error"])
+            return
+
+        current, latest = result["current"], result["latest"]
         if _version_tuple(latest) > _version_tuple(current):
             resp = rumps.alert(
                 title=f"v{latest} Available",
@@ -262,21 +279,34 @@ class DMTApp(rumps.App):
 
     def _do_update(self, latest: str):
         self._update_item.title = "Updating…"
+        self._install_pending: dict | None = None
         try:
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", "--user", "--force-reinstall",
                  "--quiet", INSTALL_URL],
-                check=True,
-                capture_output=True,
+                check=True, capture_output=True,
             )
+            self._install_pending = {"ok": True, "latest": latest}
         except subprocess.CalledProcessError as e:
-            self._update_item.title = "Check for Updates…"
-            rumps.alert("Update failed", e.stderr.decode(errors="replace") if e.stderr else str(e))
+            err = e.stderr.decode(errors="replace") if e.stderr else str(e)
+            self._install_pending = {"ok": False, "error": err}
+        t = rumps.Timer(self._on_install_timer, 0.3)
+        t.start()
+
+    def _on_install_timer(self, timer):
+        if self._install_pending is None:
+            return
+        timer.stop()
+        result = self._install_pending
+        self._install_pending = None
+        self._update_item.title = "Check for Updates…"
+
+        if not result["ok"]:
+            rumps.alert("Update failed", result["error"])
             return
 
-        self._update_item.title = "Check for Updates…"
         resp = rumps.alert(
-            title=f"v{latest} installed",
+            title=f"v{result['latest']} installed",
             message="Restart the app to apply the new version.",
             ok="Restart Now",
             cancel="Later",
