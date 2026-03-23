@@ -284,9 +284,11 @@ class DMTApp(rumps.App):
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", "--user", "--force-reinstall",
                  "--quiet", INSTALL_URL],
-                check=True, capture_output=True,
+                check=True, capture_output=True, timeout=180,
             )
             self._install_pending = {"ok": True, "latest": latest}
+        except subprocess.TimeoutExpired:
+            self._install_pending = {"ok": False, "error": "Update timed out after 3 minutes."}
         except subprocess.CalledProcessError as e:
             err = e.stderr.decode(errors="replace") if e.stderr else str(e)
             self._install_pending = {"ok": False, "error": err}
