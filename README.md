@@ -109,11 +109,15 @@ The macOS status bar app provides quick access without opening a terminal:
 |-----------|--------|
 | **Open Dashboard** | Opens `http://127.0.0.1:7317` in browser |
 | **Session Watch: OFF / ON** | Toggles real-time session monitoring |
+| **Notifications** | Toggle macOS notifications on/off (checkmark) |
+| **Poll Interval ▶** | Submenu: 5s / 10s / 30s / 60s (checkmark on current) |
 | **Quit DMT** | Stops all background processes |
 
 - Web server starts automatically in the background on launch
 - Watch mode icon changes to **◆●** when active
 - Registered as a LaunchAgent — starts at login
+- Settings (notifications, interval) persist across restarts in `~/.config/do_my_tasks/menubar.json`
+- Changing a setting while Watch is running applies immediately without manual restart
 
 ---
 
