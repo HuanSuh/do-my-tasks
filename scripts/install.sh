@@ -175,7 +175,7 @@ cat > "$LAUNCH_AGENT_PLIST" <<PLIST
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${USER_SCRIPTS}:${HOME}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>${USER_SCRIPTS}:${HOME}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/usr/sbin:/bin:/sbin</string>
   </dict>
 </dict>
 </plist>

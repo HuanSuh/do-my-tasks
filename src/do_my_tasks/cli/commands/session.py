@@ -148,7 +148,7 @@ def _get_cwd(pid: str) -> str | None:
     """Get the current working directory of a process."""
     try:
         result = subprocess.run(
-            ["lsof", "-a", "-p", pid, "-d", "cwd"],
+            ["/usr/sbin/lsof", "-a", "-p", pid, "-d", "cwd"],
             capture_output=True,
             text=True,
         )
@@ -260,7 +260,7 @@ def _lsof_find_jsonl(pid: str) -> Path | None:
     """Find JSONL file opened by a process via lsof."""
     try:
         result = subprocess.run(
-            ["lsof", "-a", "-p", pid],
+            ["/usr/sbin/lsof", "-a", "-p", pid],
             capture_output=True,
             text=True,
         )
