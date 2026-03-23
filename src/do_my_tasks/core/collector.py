@@ -8,7 +8,12 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 
 from do_my_tasks.core.git_analyzer import analyze_project
-from do_my_tasks.core.session_parser import parse_sessions_for_date
+from do_my_tasks.core.session_parser import (
+    _to_local_date_str,
+    find_session_files,
+    parse_session_file_after,
+    parse_sessions_for_date,
+)
 from do_my_tasks.core.task_manager import TaskManager
 from do_my_tasks.storage.repository import (
     CommitRepository,
@@ -86,7 +91,7 @@ class DailyCollector:
             # Ensure project exists in DB
             project_repo.upsert(name, path)
 
-            # Parse sessions
+            # Parse sessions starting on date_str
             sessions = parse_sessions_for_date(
                 self.config.claude_projects_dir,
                 date_str,
@@ -98,6 +103,11 @@ class DailyCollector:
                     session_repo.save(session, date_str)
                     counts["sessions"] += 1
 
+            # Detect resume segments for existing sessions
+            counts["sessions"] += self._collect_resume_segments(
+                name, path, date_str, session_repo
+            )
+
             # Analyze git commits
             commits = analyze_project(path, name, date_str)
             for commit in commits:
@@ -108,6 +118,62 @@ class DailyCollector:
             uow.commit()
 
         return counts
+
+    def _collect_resume_segments(
+        self,
+        project_name: str,
+        project_path: str | None,
+        date_str: str,
+        session_repo: "SessionRepository",
+    ) -> int:
+        """Detect new activity appended to already-collected session files.
+
+        When a user runs `claude --resume <uuid>`, new messages are appended to the
+        existing JSONL. This method finds those new messages and saves them as a
+        separate segment row (segment_index > 0) so they appear in the correct date.
+        """
+        files = find_session_files(self.config.claude_projects_dir, project_path=project_path)
+        count = 0
+
+        for file_path in files:
+            stem = file_path.stem
+            if stem.startswith("agent-"):
+                continue
+
+            # Find the latest already-collected segment for this file
+            latest = session_repo.get_latest_segment(stem)
+            # Also check by sessionId (the file stem may differ from the stored session_id)
+            # We try stem first since it's cheaper; full lookup happens inside get_latest_segment
+            if latest is None:
+                continue  # Not collected yet — handled by parse_sessions_for_date
+            if latest.end_time is None:
+                continue
+
+            # Parse only messages after the latest collected end_time
+            new_seg = parse_session_file_after(file_path, latest.end_time)
+            if new_seg is None:
+                continue
+
+            # Only count this segment if its activity starts on date_str
+            seg_date = _to_local_date_str(new_seg.start_time)
+            if seg_date != date_str:
+                continue
+
+            next_index = latest.segment_index + 1
+            if session_repo.exists(new_seg.session_id, segment_index=next_index):
+                continue
+
+            new_seg.project_name = project_name
+            if project_path:
+                new_seg.project_path = project_path
+            session_repo.save(new_seg, date_str, segment_index=next_index)
+            logger.info(
+                f"Collected resume segment {next_index} for session "
+                f"{new_seg.session_id[:8]}… ({project_name})"
+            )
+            count += 1
+
+        return count
 
     def _collect_unregistered_sessions(self, date_str: str) -> int:
         """Collect orphan sessions and attribute worktree sessions to parent projects."""
@@ -143,6 +209,10 @@ class DailyCollector:
                 if not session_repo.exists(session.session_id):
                     session_repo.save(session, date_str)
                     count += 1
+
+            # Also detect resume segments for unregistered sessions
+            count += self._collect_resume_segments(None, None, date_str, session_repo)
+
             uow.commit()
 
         return count

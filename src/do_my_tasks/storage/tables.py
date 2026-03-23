@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -34,9 +34,11 @@ class ProjectRow(Base):
 
 class SessionRow(Base):
     __tablename__ = "sessions"
+    __table_args__ = (UniqueConstraint("session_id", "segment_index", name="uq_session_segment"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    segment_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
     project_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)

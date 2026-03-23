@@ -21,11 +21,17 @@ logger = logging.getLogger("dmt")
 TOOL_USE_TYPE = "tool_use"
 
 
-def parse_session_file(file_path: Path) -> ClaudeSession | None:
-    """Parse a single JSONL session file into a ClaudeSession.
+def _parse_session_file_impl(
+    file_path: Path, after_dt: datetime | None = None
+) -> ClaudeSession | None:
+    """Parse a JSONL session file into a ClaudeSession.
 
     Streams line by line to avoid loading entire file into memory.
     Skips malformed JSON lines with a warning.
+
+    If after_dt is given, only counts messages after that local-naive timestamp
+    (used for resume segment detection). cwd/branch/session_id are still
+    extracted from any entry in the file.
     """
     session_id = file_path.stem  # UUID filename without extension
     # Skip agent files
@@ -60,35 +66,44 @@ def parse_session_file(file_path: Path) -> ClaudeSession | None:
                 msg_type = entry.get("type")
                 timestamp_str = entry.get("timestamp")
 
-                if timestamp_str:
-                    try:
-                        ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                        # Convert to local naive datetime for DB storage
-                        ts = ts.astimezone().replace(tzinfo=None)
-                        if first_timestamp is None or ts < first_timestamp:
-                            first_timestamp = ts
-                        if last_timestamp is None or ts > last_timestamp:
-                            last_timestamp = ts
-                    except (ValueError, AttributeError):
-                        pass
-
-                # Extract session ID
+                # Always extract metadata from any line
                 if not found_session_id and entry.get("sessionId"):
                     found_session_id = entry["sessionId"]
-
-                # Extract cwd and git branch
                 if not cwd and entry.get("cwd"):
                     cwd = entry["cwd"]
                 if git_branch is None and "gitBranch" in entry:
                     git_branch = entry["gitBranch"]
 
+                ts: datetime | None = None
+                if timestamp_str:
+                    try:
+                        ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                        # Convert to local naive datetime for DB storage
+                        ts = ts.astimezone().replace(tzinfo=None)
+                    except (ValueError, AttributeError):
+                        ts = None
+
+                # When filtering for resume segments, skip entries at or before after_dt
+                if after_dt is not None and ts is not None and ts <= after_dt:
+                    continue
+
+                if ts is not None:
+                    if first_timestamp is None or ts < first_timestamp:
+                        first_timestamp = ts
+                    if last_timestamp is None or ts > last_timestamp:
+                        last_timestamp = ts
+
                 if msg_type == "user":
                     # Skip meta/command messages
                     if entry.get("isMeta"):
                         continue
+                    if after_dt is not None and ts is None:
+                        continue
                     user_count += 1
 
                 elif msg_type == "assistant":
+                    if after_dt is not None and ts is None:
+                        continue
                     assistant_count += 1
                     message = entry.get("message", {})
 
@@ -120,7 +135,6 @@ def parse_session_file(file_path: Path) -> ClaudeSession | None:
                                             files_accessed.add(val)
 
                 elif msg_type == "file-history-snapshot":
-                    # Track file snapshots
                     pass
 
     except OSError as e:
@@ -149,6 +163,21 @@ def parse_session_file(file_path: Path) -> ClaudeSession | None:
         cwd=cwd,
         git_branch=git_branch or "",
     )
+
+
+def parse_session_file(file_path: Path) -> ClaudeSession | None:
+    """Parse a single JSONL session file into a ClaudeSession."""
+    return _parse_session_file_impl(file_path)
+
+
+def parse_session_file_after(file_path: Path, after_dt: datetime) -> ClaudeSession | None:
+    """Parse a session file for messages strictly after after_dt (local-naive datetime).
+
+    Used to detect resume segments: returns a ClaudeSession representing only
+    the new activity appended after the previously-collected end_time.
+    Returns None if there are no new messages.
+    """
+    return _parse_session_file_impl(file_path, after_dt=after_dt)
 
 
 def find_session_files(claude_projects_dir: str, project_path: str | None = None) -> list[Path]:

@@ -81,12 +81,20 @@ class SessionRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def save(self, data: ClaudeSession, date: str) -> SessionRow:
-        existing = self.session.query(SessionRow).filter_by(session_id=data.session_id).first()
+    def save(
+        self,
+        data: ClaudeSession,
+        date: str,
+        segment_index: int = 0,
+    ) -> SessionRow:
+        existing = self.session.query(SessionRow).filter_by(
+            session_id=data.session_id, segment_index=segment_index
+        ).first()
         if existing:
             return existing
         row = SessionRow(
             session_id=data.session_id,
+            segment_index=segment_index,
             project_name=data.project_name,
             project_path=data.project_path,
             start_time=data.start_time,
@@ -117,8 +125,21 @@ class SessionRepository:
             .all()
         )
 
-    def exists(self, session_id: str) -> bool:
-        return self.session.query(SessionRow).filter_by(session_id=session_id).first() is not None
+    def exists(self, session_id: str, segment_index: int = 0) -> bool:
+        return (
+            self.session.query(SessionRow)
+            .filter_by(session_id=session_id, segment_index=segment_index)
+            .first()
+        ) is not None
+
+    def get_latest_segment(self, session_id: str) -> SessionRow | None:
+        """Return the most recently collected segment for a given session_id."""
+        return (
+            self.session.query(SessionRow)
+            .filter_by(session_id=session_id)
+            .order_by(SessionRow.segment_index.desc())
+            .first()
+        )
 
 
 class CommitRepository:
