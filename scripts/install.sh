@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO="git+https://github.com/HuanSuh/do-my-tasks.git"
-APP_NAME="DMT"
+APP_NAME="DoMyTasks"
 APP_DEST="/Applications/${APP_NAME}.app"
 LAUNCH_AGENT_ID="io.github.huansuh.dmt"
 LAUNCH_AGENT_PLIST="$HOME/Library/LaunchAgents/${LAUNCH_AGENT_ID}.plist"
@@ -82,6 +82,34 @@ TMP_APP=$(mktemp -d)/"${APP_NAME}.app"
 mkdir -p "${TMP_APP}/Contents/MacOS"
 mkdir -p "${TMP_APP}/Contents/Resources"
 
+# App icon: find package icon and convert to icns
+MENUBAR_PKG_DIR=$($PYTHON -c "import do_my_tasks.menubar as m; import os; print(os.path.dirname(m.__file__))" 2>/dev/null || echo "")
+APP_ICON_PNG="${MENUBAR_PKG_DIR}/app_icon.png"
+ICNS_PATH="${TMP_APP}/Contents/Resources/${APP_NAME}.icns"
+
+if [[ -f "$APP_ICON_PNG" ]] && command -v sips &>/dev/null; then
+    ICONSET_DIR=$(mktemp -d)/${APP_NAME}.iconset
+    mkdir -p "$ICONSET_DIR"
+    for size in 16 32 64 128 256 512; do
+        sips -z $size $size "$APP_ICON_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}.png" &>/dev/null
+        double=$((size * 2))
+        sips -z $double $double "$APP_ICON_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}@2x.png" &>/dev/null
+    done
+    iconutil -c icns "$ICONSET_DIR" -o "$ICNS_PATH" 2>/dev/null && \
+        success "App icon created" || info "iconutil failed — skipping icon"
+    rm -rf "$(dirname "$ICONSET_DIR")"
+elif [[ -f "$APP_ICON_PNG" ]]; then
+    cp "$APP_ICON_PNG" "${TMP_APP}/Contents/Resources/${APP_NAME}.png"
+    info "sips not found — copied PNG as fallback icon"
+else
+    info "App icon not found — skipping"
+fi
+
+ICON_KEY=""
+if [[ -f "$ICNS_PATH" ]]; then
+    ICON_KEY="  <key>CFBundleIconFile</key>       <string>${APP_NAME}</string>"
+fi
+
 # Info.plist
 cat > "${TMP_APP}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -94,6 +122,7 @@ cat > "${TMP_APP}/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key>          <string>0.1.0</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleExecutable</key>       <string>${APP_NAME}</string>
+  ${ICON_KEY}
   <key>LSUIElement</key>              <true/>
   <key>NSHighResolutionCapable</key>  <true/>
   <key>LSMinimumSystemVersion</key>   <string>12.0</string>

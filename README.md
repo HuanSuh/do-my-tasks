@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/HuanSuh/do-my-tasks/main/scripts/in
 
 This script:
 1. Installs the package via `pipx` (or `pip` as fallback)
-2. Builds `/Applications/DMT.app` — a lightweight status bar app
+2. Builds `/Applications/DoMyTasks.app` — a lightweight status bar app
 3. Registers a LaunchAgent for auto-start at login
 4. Adds `dmt collect` to Claude Code's `Stop` hook automatically
 

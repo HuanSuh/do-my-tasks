@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/HuanSuh/do-my-tasks/main/scripts/in
 
 설치 스크립트가 자동으로 처리하는 것들:
 1. `pipx`로 패키지 설치 (없으면 `pip` 폴백)
-2. `/Applications/DMT.app` 생성 — 경량 상태바 앱
+2. `/Applications/DoMyTasks.app` 생성 — 경량 상태바 앱
 3. 로그인 시 자동 시작을 위한 LaunchAgent 등록
 4. Claude Code `Stop` 훅에 `dmt collect` 자동 추가
 

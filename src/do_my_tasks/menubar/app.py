@@ -13,8 +13,7 @@ import rumps
 
 DASHBOARD_URL = "http://127.0.0.1:7317"
 DMT_PORT = 7317
-ICON_TITLE = "◆"
-ICON_WATCH = "◆●"
+ICON_PATH = str(Path(__file__).parent / "icon.png")
 
 WATCH_INTERVALS = [5, 10, 30, 60]  # seconds
 SETTINGS_PATH = Path.home() / ".config" / "do_my_tasks" / "menubar.json"
@@ -69,7 +68,7 @@ def _save_settings(settings: dict) -> None:
 
 class DMTApp(rumps.App):
     def __init__(self):
-        super().__init__("DMT", title=ICON_TITLE, quit_button=None)
+        super().__init__("DoMyTasks", icon=ICON_PATH, template=True, quit_button=None)
 
         self._dmt = _find_dmt()
         self._web_proc: subprocess.Popen | None = None
@@ -171,14 +170,14 @@ class DMTApp(rumps.App):
             rumps.alert("DMT", f"Failed to start session watch: {e}")
             return
         self._watch_item.title = "Session Watch: ON ✓"
-        self.title = ICON_WATCH
+        self.title = "●"
 
     def _stop_watch(self):
         if self._watch_proc:
             self._watch_proc.terminate()
             self._watch_proc = None
         self._watch_item.title = "Session Watch: OFF"
-        self.title = ICON_TITLE
+        self.title = ""
 
     def _restart_watch_if_running(self):
         """Restart watch so new settings take effect immediately."""
