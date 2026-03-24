@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import time
 from datetime import datetime
@@ -24,6 +26,38 @@ console = Console()
 # Watch log directory and file handle
 _watch_log_dir = Path.home() / ".dmt" / "logs"
 _watch_log_file = None
+
+# PID file for single-instance enforcement
+_WATCH_PID_FILE = Path.home() / ".dmt" / "watch.pid"
+
+
+def _acquire_watch_lock() -> None:
+    """기존 watch 인스턴스를 종료하고 현재 PID를 기록한다."""
+    if _WATCH_PID_FILE.exists():
+        try:
+            old_pid = int(_WATCH_PID_FILE.read_text().strip())
+            os.kill(old_pid, signal.SIGTERM)
+            # 종료될 때까지 최대 3초 대기
+            for _ in range(30):
+                time.sleep(0.1)
+                try:
+                    os.kill(old_pid, 0)
+                except ProcessLookupError:
+                    break
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass
+
+    _WATCH_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _WATCH_PID_FILE.write_text(str(os.getpid()))
+
+
+def _release_watch_lock() -> None:
+    """PID 파일을 삭제한다."""
+    try:
+        if _WATCH_PID_FILE.exists() and _WATCH_PID_FILE.read_text().strip() == str(os.getpid()):
+            _WATCH_PID_FILE.unlink()
+    except OSError:
+        pass
 
 
 def _init_watch_log() -> Path:
@@ -1034,6 +1068,9 @@ def watch(
     working (assistant done, no new activity), sends a notification
     with pending tasks so you can assign the next one.
     """
+    # 단일 인스턴스 보장 — 기존 watch 프로세스 종료 후 PID 기록
+    _acquire_watch_lock()
+
     # Init watch log
     log_path = _init_watch_log()
 
@@ -1340,6 +1377,7 @@ def watch(
         console.print(f"\n[red]Watch error: {e}[/red]")
         raise
     finally:
+        _release_watch_lock()
         if _watch_log_file and not _watch_log_file.closed:
             _watch_log_file.close()
 
