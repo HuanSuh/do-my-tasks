@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 import threading
@@ -19,6 +21,7 @@ ICON_PATH = str(Path(__file__).parent / "icon.png")
 ICON_WATCH_PATH = str(Path(__file__).parent / "icon_watch.png")
 
 WATCH_INTERVALS = [5, 10, 30, 60]  # seconds
+WATCH_PID_FILE = Path.home() / ".dmt" / "watch.pid"
 SETTINGS_PATH = Path.home() / ".config" / "do_my_tasks" / "menubar.json"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/HuanSuh/do-my-tasks/releases/latest"
 INSTALL_URL = "git+https://github.com/HuanSuh/do-my-tasks.git"
@@ -122,6 +125,15 @@ class DMTApp(rumps.App):
         # Start web server
         threading.Thread(target=self._start_web, daemon=True).start()
 
+        # 시작 시 외부에서 실행 중인 watch 상태 반영
+        if self._watch_running():
+            self._watch_item.title = "Session Watch: ON ✓"
+            self.icon = ICON_WATCH_PATH
+            self.template = False
+
+        # 주기적으로 watch 상태를 UI에 동기화 (3초마다)
+        rumps.Timer(self._sync_watch_state, 3).start()
+
         # 업데이트 후 재시작 시 완료 팝업
         if UPDATE_SIGNAL_PATH.exists():
             version = UPDATE_SIGNAL_PATH.read_text().strip()
@@ -173,7 +185,16 @@ class DMTApp(rumps.App):
             self._start_watch()
 
     def _watch_running(self) -> bool:
-        return self._watch_proc is not None and self._watch_proc.poll() is None
+        # 직접 실행한 subprocess 확인
+        if self._watch_proc is not None and self._watch_proc.poll() is None:
+            return True
+        # CLI 등 외부에서 실행된 watch 확인 (PID 파일)
+        try:
+            pid = int(WATCH_PID_FILE.read_text().strip())
+            os.kill(pid, 0)  # 프로세스 존재 여부만 확인
+            return True
+        except (OSError, ValueError, FileNotFoundError):
+            return False
 
     def _start_watch(self):
         cmd = [self._dmt, "sessions", "watch", "--interval", str(self._interval)]
@@ -196,6 +217,12 @@ class DMTApp(rumps.App):
         if self._watch_proc:
             self._watch_proc.terminate()
             self._watch_proc = None
+        # CLI 등 외부에서 실행된 watch도 종료
+        try:
+            pid = int(WATCH_PID_FILE.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+        except (OSError, ValueError, FileNotFoundError):
+            pass
         self._watch_item.title = "Session Watch: OFF"
         self.icon = ICON_PATH
         self.template = True
@@ -205,6 +232,20 @@ class DMTApp(rumps.App):
         if self._watch_running():
             self._stop_watch()
             self._start_watch()
+
+    def _sync_watch_state(self, _):
+        """watch 실제 실행 상태를 메뉴바 UI에 반영한다."""
+        running = self._watch_running()
+        currently_shown_on = self._watch_item.title == "Session Watch: ON ✓"
+        if running and not currently_shown_on:
+            self._watch_item.title = "Session Watch: ON ✓"
+            self.icon = ICON_WATCH_PATH
+            self.template = False
+        elif not running and currently_shown_on:
+            self._watch_proc = None
+            self._watch_item.title = "Session Watch: OFF"
+            self.icon = ICON_PATH
+            self.template = True
 
     # ── Notifications toggle ──────────────────────────────────────────────────
 

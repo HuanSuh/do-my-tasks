@@ -136,7 +136,7 @@ cat > "$LAUNCHER" <<LAUNCHER
 #!/usr/bin/env bash
 # Add pipx bin to PATH in case it's not in the login environment
 export PATH="\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH"
-exec "${PYTHON}" -m do_my_tasks.menubar.app "\$@"
+exec arch -arm64 "${PYTHON}" -m do_my_tasks.menubar.app "\$@"
 LAUNCHER
 chmod +x "$LAUNCHER"
 
