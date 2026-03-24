@@ -344,7 +344,15 @@ class DMTApp(rumps.App):
     # ── Quit ──────────────────────────────────────────────────────────────────
 
     def _quit(self, _):
-        self._stop_watch()
+        if self._watch_running():
+            resp = rumps.alert(
+                title="Session Watch is running",
+                message="Session Watch is currently active. Stop it before quitting?",
+                ok="Stop & Quit",
+                cancel="Quit Anyway",
+            )
+            if resp == 1:
+                self._stop_watch()
         if self._web_proc:
             self._web_proc.terminate()
         rumps.quit_application()
