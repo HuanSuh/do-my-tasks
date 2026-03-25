@@ -248,6 +248,9 @@
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-0.5">
               <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">no log</span>
+              {% if s.project %}
+              <span class="font-semibold text-slate-800 text-sm">{{ s.project }}</span>
+              {% endif %}
               <span class="mono text-xs text-slate-400">PID {{ s.pid }}</span>
               {% if s.note %}
               <span class="mono text-xs text-slate-300">{{ s.note }}</span>
@@ -255,8 +258,20 @@
             </div>
             <div class="mono text-xs text-slate-400 truncate" title="{{ s.cwd }}">{{ s.cwd or '—' }}</div>
           </div>
-          <div class="text-xs text-slate-400 shrink-0">
-            {{ s.started }} · {{ s.elapsed }} ago
+          <div class="flex items-center gap-3 shrink-0">
+            <div class="text-xs text-slate-400">
+              {{ s.started }} · {{ s.elapsed }} ago
+            </div>
+            <form method="post" action="/sessions/untracked/{{ s.pid }}/map" class="flex items-center gap-1">
+              <select name="project_name"
+                      onchange="if(this.value) this.form.submit()"
+                      class="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 hover:border-slate-300 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer">
+                <option value="">— map to project —</option>
+                {% for p in all_projects %}
+                <option value="{{ p }}" {% if s.project == p %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+              </select>
+            </form>
           </div>
         </div>
         {% endfor %}

@@ -80,6 +80,9 @@ templates.env.filters["as_local"] = _as_local
 
 # ─── live session helpers ──────────────────────────────────────────────────────
 
+# In-memory store for manually overridden project mappings for untracked sessions (pid -> project_name)
+_untracked_project_overrides: dict[str, str] = {}
+
 def _get_git_branch(cwd: str) -> str:
     try:
         result = subprocess.run(
@@ -120,6 +123,7 @@ def get_live_sessions() -> tuple[list[dict], list[dict]]:
         if not log_path:
             untracked.append({
                 "pid": pid,
+                "project": _untracked_project_overrides.get(pid) or project,
                 "cwd": cwd or "",
                 "started": proc["started"].strftime("%H:%M") if proc["started"] else "-",
                 "elapsed": elapsed,
@@ -336,6 +340,8 @@ async def sessions_page(request: Request, date: str | None = None):
     with UnitOfWork(sf) as uow:
         repo = SessionRepository(uow.session)
         session_rows = repo.get_by_date(date_str)
+        proj_repo = ProjectRepository(uow.session)
+        all_projects = [p.name for p in proj_repo.list_active()]
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     prev_date = (dt - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -350,8 +356,18 @@ async def sessions_page(request: Request, date: str | None = None):
         "live_sessions": live,
         "untracked_sessions": untracked,
         "session_rows": session_rows,
+        "all_projects": all_projects,
         "active_page": "sessions",
     })
+
+
+@app.post("/sessions/untracked/{pid}/map")
+async def map_untracked_session(pid: str, project_name: str = Form(...)):
+    if project_name:
+        _untracked_project_overrides[pid] = project_name
+    else:
+        _untracked_project_overrides.pop(pid, None)
+    return RedirectResponse("/sessions", status_code=303)
 
 
 @app.get("/activity", response_class=HTMLResponse)
